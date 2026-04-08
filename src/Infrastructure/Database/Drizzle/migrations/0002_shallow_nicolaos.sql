@@ -1,0 +1,1 @@
+ALTER TABLE "bot_step_conditions" ADD COLUMN "action" jsonb;

@@ -1,0 +1,24 @@
+import { Request, Response, NextFunction } from "express";
+import { z } from "zod";
+import { ReorderStages } from "../../../Application/Modules/Pipelines/UseCases/ReorderStages";
+
+const schema = z.object({
+  stageIds: z.array(z.string()).min(1),
+});
+
+export class ReorderStagesController {
+  constructor(private readonly reorderStages: ReorderStages) {}
+
+  handle = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const data = schema.parse(req.body);
+      const result = await this.reorderStages.execute({
+        pipelineId: req.params.id,
+        stageIds: data.stageIds,
+      });
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  };
+}

@@ -1,0 +1,41 @@
+{
+  "version": "6",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1773624239177,
+      "tag": "0000_thin_yellowjacket",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1773661152767,
+      "tag": "0001_futuristic_the_initiative",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1775485646508,
+      "tag": "0002_shallow_nicolaos",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1775498888026,
+      "tag": "0003_dear_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1775514427772,
+      "tag": "0004_open_lethal_legion",
+      "breakpoints": true
+    }
+  ]
+}
