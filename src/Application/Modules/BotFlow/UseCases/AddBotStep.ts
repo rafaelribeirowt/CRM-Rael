@@ -10,6 +10,7 @@ interface AddBotStepInput {
   type: StepType;
   config: object;
   position?: number;
+  tenantId: string;
 }
 
 export class AddBotStep {
@@ -19,13 +20,14 @@ export class AddBotStep {
   ) {}
 
   async execute(input: AddBotStepInput) {
-    const flow = await this.botFlowRepository.findById(input.flowId);
+    const flow = await this.botFlowRepository.findById(input.flowId, input.tenantId);
     if (!flow) {
       throw new AppError("Bot flow not found", 404, "BOT_FLOW_NOT_FOUND");
     }
 
     const existingSteps = await this.botStepRepository.findByFlowIdOrdered(
-      input.flowId
+      input.flowId,
+      input.tenantId
     );
 
     const position = input.position ?? existingSteps.length;
@@ -43,17 +45,17 @@ export class AddBotStep {
         firstStepId: step.id,
         updatedAt: new Date(),
       });
-      await this.botFlowRepository.save(updatedFlow);
+      await this.botFlowRepository.save(updatedFlow, input.tenantId);
     } else {
       const lastStep = existingSteps[existingSteps.length - 1];
       const linkedLastStep = new BotStep({
         ...lastStep.props,
         nextStepId: step.id,
       });
-      await this.botStepRepository.save(linkedLastStep);
+      await this.botStepRepository.save(linkedLastStep, input.tenantId);
     }
 
-    await this.botStepRepository.save(step);
+    await this.botStepRepository.save(step, input.tenantId);
 
     return step.toJSON();
   }

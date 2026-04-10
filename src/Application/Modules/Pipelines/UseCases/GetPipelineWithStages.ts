@@ -3,6 +3,11 @@ import { IPipelineRepository } from "../../../Contracts/Repositories/IPipelineRe
 import { IPipelineStageRepository } from "../../../Contracts/Repositories/IPipelineStageRepository";
 import { ILeadRepository } from "../../../Contracts/Repositories/ILeadRepository";
 
+interface GetPipelineWithStagesInput {
+  pipelineId: string;
+  tenantId: string;
+}
+
 export class GetPipelineWithStages {
   constructor(
     private readonly pipelineRepository: IPipelineRepository,
@@ -10,14 +15,14 @@ export class GetPipelineWithStages {
     private readonly leadRepository: ILeadRepository
   ) {}
 
-  async execute(pipelineId: string) {
-    const pipeline = await this.pipelineRepository.findById(pipelineId);
+  async execute(input: GetPipelineWithStagesInput) {
+    const pipeline = await this.pipelineRepository.findById(input.pipelineId, input.tenantId);
     if (!pipeline) {
       throw new AppError("Pipeline not found", 404, "PIPELINE_NOT_FOUND");
     }
 
-    const stages = await this.stageRepository.findByPipelineId(pipelineId);
-    const leads = await this.leadRepository.findByPipelineId(pipelineId);
+    const stages = await this.stageRepository.findByPipelineId(input.pipelineId, input.tenantId);
+    const leads = await this.leadRepository.findByPipelineId(input.pipelineId, input.tenantId);
 
     const stagesWithLeads = stages.map((stage) => ({
       ...stage.toJSON(),

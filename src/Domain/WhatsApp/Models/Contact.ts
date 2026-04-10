@@ -8,6 +8,8 @@ export interface ContactProps {
   pushName: string | null;
   profilePicUrl: string | null;
   leadId: string | null;
+  isHidden: boolean;
+  isIgnored: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,6 +24,8 @@ export class Contact {
   get pushName() { return this.props.pushName; }
   get profilePicUrl() { return this.props.profilePicUrl; }
   get leadId() { return this.props.leadId; }
+  get isHidden() { return this.props.isHidden; }
+  get isIgnored() { return this.props.isIgnored; }
   get createdAt() { return this.props.createdAt; }
   get updatedAt() { return this.props.updatedAt; }
 
@@ -41,6 +45,8 @@ export class Contact {
       pushName: input.pushName ?? null,
       profilePicUrl: input.profilePicUrl ?? null,
       leadId: input.leadId ?? null,
+      isHidden: false,
+      isIgnored: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

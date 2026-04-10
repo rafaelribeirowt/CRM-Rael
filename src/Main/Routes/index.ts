@@ -7,6 +7,11 @@ import { dashboardRouter } from "./Dashboard";
 import { whatsappRouter } from "./WhatsApp";
 import { botFlowRouter } from "./BotFlow";
 import { settingsRouter } from "./Settings";
+import { subscriptionRouter } from "./Subscription";
+import { webhookRouter } from "./Webhooks";
+import { adminRouter } from "./Admin";
+import { apiKeysRouter } from "./ApiKeys";
+import { publicApiRouter } from "./PublicApi";
 
 export const router = Router();
 
@@ -18,3 +23,8 @@ router.use("/dashboard", dashboardRouter);
 router.use("/whatsapp", whatsappRouter);
 router.use("/bot-flows", botFlowRouter);
 router.use("/settings", settingsRouter);
+router.use("/subscription", subscriptionRouter);
+router.use("/webhooks", webhookRouter);
+router.use("/admin", adminRouter);
+router.use("/api-keys", apiKeysRouter);
+router.use("/v1", publicApiRouter);

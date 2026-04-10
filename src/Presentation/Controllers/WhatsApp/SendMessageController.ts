@@ -16,6 +16,7 @@ export class SendMessageController {
       const data = schema.parse(req.body);
       const result = await this.sendMessage.execute({
         userId: req.userId!,
+        tenantId: req.tenantId!,
         ...data,
       });
       res.status(201).json(result);

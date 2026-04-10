@@ -1,6 +1,7 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
 import { z } from "zod";
 import { SetStepConditions } from "../../../Application/Modules/BotFlow/UseCases/SetStepConditions";
+import { AuthenticatedRequest } from "../../Contracts/HttpRequest";
 
 const actionSchema = z.object({
   actionType: z.string(),
@@ -26,13 +27,19 @@ const schema = z.object({
 export class SetStepConditionsController {
   constructor(private readonly setStepConditions: SetStepConditions) {}
 
-  handle = async (req: Request, res: Response, next: NextFunction) => {
+  handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const data = schema.parse(req.body);
       const result = await this.setStepConditions.execute({
         flowId: req.params.flowId,
         stepId: req.params.stepId,
-        conditions: data.conditions,
+        conditions: data.conditions.map((c) => ({
+          ...c,
+          value: c.value ?? undefined,
+          nextStepId: c.nextStepId ?? undefined,
+          action: (c.action ?? undefined) as any,
+        })),
+        tenantId: req.tenantId!,
       });
       res.json(result);
     } catch (error) {

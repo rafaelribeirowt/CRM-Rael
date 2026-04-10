@@ -14,12 +14,17 @@ export interface LeadFilters {
 }
 
 export interface ILeadRepository extends IRepository<Lead> {
-  findByPhone(phone: string): Promise<Lead | null>;
-  findByStageId(stageId: string): Promise<Lead[]>;
-  findByPipelineId(pipelineId: string): Promise<Lead[]>;
+  save(entity: Lead, tenantId: string): Promise<void>;
+  findById(id: string, tenantId: string): Promise<Lead | null>;
+  delete(id: string, tenantId: string): Promise<void>;
+  findByPhone(phone: string, tenantId: string): Promise<Lead | null>;
+  findByStageId(stageId: string, tenantId: string): Promise<Lead[]>;
+  findByPipelineId(pipelineId: string, tenantId: string): Promise<Lead[]>;
   search(
     filters: LeadFilters,
-    pagination: PaginationInput
+    pagination: PaginationInput,
+    tenantId: string
   ): Promise<PaginationResult<Lead>>;
-  updatePosition(id: string, stageId: string, position: number, pipelineId?: string): Promise<void>;
+  updatePosition(id: string, stageId: string, position: number, tenantId: string, pipelineId?: string): Promise<void>;
+  countByTenantId(tenantId: string): Promise<number>;
 }

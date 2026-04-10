@@ -10,19 +10,19 @@ export class GetBotFlowById {
     private readonly botStepConditionRepository: IBotStepConditionRepository
   ) {}
 
-  async execute(flowId: string) {
-    const flow = await this.botFlowRepository.findById(flowId);
+  async execute(input: { flowId: string; tenantId: string }) {
+    const flow = await this.botFlowRepository.findById(input.flowId, input.tenantId);
     if (!flow) {
       throw new AppError("Bot flow not found", 404, "BOT_FLOW_NOT_FOUND");
     }
 
-    const steps = await this.botStepRepository.findByFlowIdOrdered(flowId);
+    const steps = await this.botStepRepository.findByFlowIdOrdered(input.flowId, input.tenantId);
 
     const stepsWithConditions = await Promise.all(
       steps.map(async (step) => {
         if (step.type === "condition") {
           const conditions =
-            await this.botStepConditionRepository.findByStepId(step.id);
+            await this.botStepConditionRepository.findByStepId(step.id, input.tenantId);
           return {
             ...step.toJSON(),
             conditions: conditions.map((c) => c.toJSON()),

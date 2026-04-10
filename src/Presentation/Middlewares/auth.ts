@@ -21,6 +21,7 @@ export async function authMiddleware(
     const payload = await encrypter.decrypt(token);
 
     req.userId = payload.sub as string;
+    req.tenantId = payload.tenantId as string;
     next();
   } catch {
     next(new AppError("Invalid or expired token", 401, "UNAUTHORIZED"));

@@ -6,6 +6,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(6),
+  companyName: z.string().min(2),
 });
 
 export class RegisterUserController {
@@ -14,8 +15,8 @@ export class RegisterUserController {
   handle = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const data = registerSchema.parse(req.body);
-      const user = await this.registerUser.execute(data);
-      res.status(201).json(user);
+      const result = await this.registerUser.execute(data);
+      res.status(201).json(result);
     } catch (error) {
       next(error);
     }

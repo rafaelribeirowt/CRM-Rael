@@ -13,6 +13,7 @@ interface ConvertContactToLeadInput {
   stageId: string;
   userId?: string;
   name?: string;
+  tenantId: string;
 }
 
 export class ConvertContactToLead {
@@ -24,14 +25,14 @@ export class ConvertContactToLead {
   ) {}
 
   async execute(input: ConvertContactToLeadInput) {
-    const contact = await this.contactRepository.findById(input.contactId);
+    const contact = await this.contactRepository.findById(input.contactId, input.tenantId);
     if (!contact) {
       throw new AppError("Contact not found", 404, "CONTACT_NOT_FOUND");
     }
 
     // Check if contact already has a lead
     if (contact.leadId) {
-      const existingLead = await this.leadRepository.findById(contact.leadId);
+      const existingLead = await this.leadRepository.findById(contact.leadId, input.tenantId);
       if (existingLead) {
         throw new AppError(
           "Este contato ja esta vinculado a um lead",
@@ -42,7 +43,7 @@ export class ConvertContactToLead {
     }
 
     // Verify stage exists
-    const stage = await this.stageRepository.findById(input.stageId);
+    const stage = await this.stageRepository.findById(input.stageId, input.tenantId);
     if (!stage) {
       throw new AppError("Stage not found", 404, "STAGE_NOT_FOUND");
     }
@@ -55,7 +56,7 @@ export class ConvertContactToLead {
       pipelineId: input.pipelineId,
       source: "whatsapp",
     });
-    await this.leadRepository.save(lead);
+    await this.leadRepository.save(lead, input.tenantId);
 
     // Log activity
     const activity = Activity.create({
@@ -64,14 +65,14 @@ export class ConvertContactToLead {
       type: "created",
       description: `Lead criado a partir de conversa WhatsApp`,
     });
-    await this.activityRepository.save(activity);
+    await this.activityRepository.save(activity, input.tenantId);
 
     // Link contact to lead
     const updatedContact = new Contact({
       ...contact.props,
       leadId: lead.id,
     });
-    await this.contactRepository.save(updatedContact);
+    await this.contactRepository.save(updatedContact, input.tenantId);
 
     return lead.toJSON();
   }

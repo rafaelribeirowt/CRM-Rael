@@ -16,6 +16,10 @@ const envSchema = z.object({
   MEDIA_UPLOAD_DIR: z.string().default("./uploads"),
   ANTHROPIC_API_KEY: z.string().default(""),
   OPENAI_API_KEY: z.string().default(""),
+  ASAAS_API_KEY: z.string().default(""),
+  ASAAS_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
+  ASAAS_WEBHOOK_TOKEN: z.string().default(""),
+  IGNORED_CONTACTS_PASSWORD: z.string().default("rael@2026"),
 });
 
 const parsed = envSchema.safeParse(process.env);

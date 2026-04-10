@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/raelt/AppData/Local/Temp/claude/c--CRM-Rael-ddd-template/f6433bc4-125f-495b-bb63-da8bd4bbcc1d/tasks/**)"
+    ]
+  }
+}

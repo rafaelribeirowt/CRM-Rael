@@ -1,6 +1,7 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
 import { z } from "zod";
 import { UpdateStage } from "../../../Application/Modules/Pipelines/UseCases/UpdateStage";
+import { AuthenticatedRequest } from "../../Contracts/HttpRequest";
 
 const schema = z.object({
   name: z.string().min(1).optional(),
@@ -12,11 +13,12 @@ const schema = z.object({
 export class UpdateStageController {
   constructor(private readonly updateStage: UpdateStage) {}
 
-  handle = async (req: Request, res: Response, next: NextFunction) => {
+  handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const data = schema.parse(req.body);
       const result = await this.updateStage.execute({
         stageId: req.params.stageId,
+        tenantId: req.tenantId!,
         ...data,
       });
       res.json(result);

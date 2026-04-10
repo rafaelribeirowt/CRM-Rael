@@ -4,4 +4,6 @@ import { IRepository } from "./IRepository";
 export interface IUserRepository extends IRepository<User> {
   findByEmail(email: string): Promise<User | null>;
   findAll(): Promise<User[]>;
+  findAllByTenantId(tenantId: string): Promise<User[]>;
+  countByTenantId(tenantId: string): Promise<number>;
 }

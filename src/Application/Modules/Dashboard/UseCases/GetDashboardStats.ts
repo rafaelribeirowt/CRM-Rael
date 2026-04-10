@@ -5,10 +5,12 @@ import { pipelineStages } from "../../../../Infrastructure/Database/Schemas/pipe
 import { messages } from "../../../../Infrastructure/Database/Schemas/messages";
 
 export class GetDashboardStats {
-  async execute() {
+  async execute(tenantId: string) {
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const tenantFilter = eq(leads.tenantId, tenantId);
 
     const [
       totalLeadsResult,
@@ -18,25 +20,25 @@ export class GetDashboardStats {
       messagesTodayResult,
       leadsByStageResult,
     ] = await Promise.all([
-      db.select({ total: count() }).from(leads),
+      db.select({ total: count() }).from(leads).where(tenantFilter),
       db
         .select({ total: count() })
         .from(leads)
         .innerJoin(pipelineStages, eq(leads.stageId, pipelineStages.id))
-        .where(eq(pipelineStages.isWon, true)),
+        .where(and(eq(pipelineStages.isWon, true), tenantFilter)),
       db
         .select({ total: count() })
         .from(leads)
         .innerJoin(pipelineStages, eq(leads.stageId, pipelineStages.id))
-        .where(eq(pipelineStages.isLost, true)),
+        .where(and(eq(pipelineStages.isLost, true), tenantFilter)),
       db
         .select({ total: count() })
         .from(leads)
-        .where(gte(leads.createdAt, startOfMonth)),
+        .where(and(gte(leads.createdAt, startOfMonth), tenantFilter)),
       db
         .select({ total: count() })
         .from(messages)
-        .where(gte(messages.createdAt, startOfDay))
+        .where(and(gte(messages.createdAt, startOfDay), eq(messages.tenantId, tenantId)))
         .catch(() => [{ total: 0 }]),
       db
         .select({
@@ -47,6 +49,7 @@ export class GetDashboardStats {
         })
         .from(leads)
         .innerJoin(pipelineStages, eq(leads.stageId, pipelineStages.id))
+        .where(tenantFilter)
         .groupBy(pipelineStages.id, pipelineStages.name, pipelineStages.color),
     ]);
 
@@ -61,7 +64,7 @@ export class GetDashboardStats {
       .select({ sum: sql<string>`COALESCE(SUM(CAST(${leads.value} AS NUMERIC)), 0)` })
       .from(leads)
       .innerJoin(pipelineStages, eq(leads.stageId, pipelineStages.id))
-      .where(eq(pipelineStages.isWon, true));
+      .where(and(eq(pipelineStages.isWon, true), tenantFilter));
 
     return {
       totalLeads,

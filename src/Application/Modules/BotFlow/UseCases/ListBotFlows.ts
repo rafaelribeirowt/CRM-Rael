@@ -3,8 +3,8 @@ import { IBotFlowRepository } from "../../../Contracts/Repositories/IBotFlowRepo
 export class ListBotFlows {
   constructor(private readonly botFlowRepository: IBotFlowRepository) {}
 
-  async execute() {
-    const flows = await this.botFlowRepository.findAll();
+  async execute(tenantId: string) {
+    const flows = await this.botFlowRepository.findAll(tenantId);
     return flows.map((f) => f.toJSON());
   }
 }

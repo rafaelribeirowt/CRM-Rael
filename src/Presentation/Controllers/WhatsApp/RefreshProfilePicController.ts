@@ -15,12 +15,13 @@ export class RefreshProfilePicController {
 
   handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const contact = await this.contactRepository.findById(req.params.contactId);
+      const tenantId = req.tenantId!;
+      const contact = await this.contactRepository.findById(req.params.contactId, tenantId);
       if (!contact) {
         throw new AppError("Contact not found", 404, "CONTACT_NOT_FOUND");
       }
 
-      const session = await this.sessionRepository.findByUserId(req.userId!);
+      const session = await this.sessionRepository.findByUserId(req.userId!, tenantId);
       if (!session || this.gateway.getStatus(session.id) !== "connected") {
         throw new AppError("WhatsApp not connected", 400, "NOT_CONNECTED");
       }
@@ -32,7 +33,7 @@ export class RefreshProfilePicController {
         profilePicUrl: picUrl,
         updatedAt: new Date(),
       });
-      await this.contactRepository.save(updated);
+      await this.contactRepository.save(updated, tenantId);
 
       res.json({ profilePicUrl: picUrl });
     } catch (error) {

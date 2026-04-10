@@ -1,5 +1,6 @@
 import { IWhatsAppSessionRepository } from "../../../Contracts/Repositories/IWhatsAppSessionRepository";
 import { IWhatsAppGateway } from "../../../Contracts/WhatsApp/IWhatsAppGateway";
+import { AppError } from "../../../Contracts/Errors/AppError";
 
 export class GetSessionStatus {
   constructor(
@@ -7,22 +8,19 @@ export class GetSessionStatus {
     private readonly gateway: IWhatsAppGateway
   ) {}
 
-  async execute(userId: string) {
-    const session = await this.sessionRepository.findByUserId(userId);
-
+  async execute(input: { sessionId: string; tenantId: string }) {
+    const session = await this.sessionRepository.findById(input.sessionId, input.tenantId);
     if (!session) {
-      return { status: "no_session" as const, qr: null };
+      throw new AppError("Session not found", 404, "SESSION_NOT_FOUND");
     }
 
     const liveStatus = this.gateway.getStatus(session.id);
-    const qr =
-      liveStatus === "qr_pending" ? this.gateway.getQRCode(session.id) : null;
+    const qr = liveStatus === "qr_pending" ? this.gateway.getQRCode(session.id) : null;
 
     return {
-      status: liveStatus,
+      ...session.toJSON(),
+      liveStatus,
       qr,
-      sessionId: session.id,
-      phoneNumber: session.phoneNumber,
     };
   }
 }

@@ -31,6 +31,7 @@ export class CreatePipelineController {
       const result = await this.createPipeline.execute({
         ...data,
         createdBy: req.userId!,
+        tenantId: req.tenantId!,
       });
       res.status(201).json(result);
     } catch (error) {

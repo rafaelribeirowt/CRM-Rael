@@ -17,6 +17,7 @@ export class EditMessageController {
         userId: req.userId!,
         messageId: req.params.messageId,
         newContent: data.newContent,
+        tenantId: req.tenantId!,
       });
       res.json(result);
     } catch (error) {

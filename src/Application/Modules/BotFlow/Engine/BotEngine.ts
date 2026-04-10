@@ -59,6 +59,7 @@ export class BotEngine {
   async handleIncomingMessage(
     contactId: string,
     content: string | null,
+    tenantId: string,
     leadId?: string | null,
     mediaInfo?: MediaInfo
   ): Promise<{ handled: boolean }> {
@@ -85,12 +86,12 @@ export class BotEngine {
       }
 
       // Check for active session
-      let session = await this.sessionRepository.findActiveByContactId(contactId);
+      let session = await this.sessionRepository.findActiveByContactId(contactId, tenantId);
 
       if (session) {
         if (session.status === "waiting_response") {
-          session = await this.handleResponse(session, effectiveContent ?? "");
-          await this.runLoop(session, contactId);
+          session = await this.handleResponse(session, effectiveContent ?? "", tenantId);
+          await this.runLoop(session, contactId, tenantId);
           return { handled: true };
         }
         if (session.status === "completed" || session.status === "paused") {
@@ -100,7 +101,7 @@ export class BotEngine {
       }
 
       // No session - find matching flow
-      const flow = await this.findMatchingFlow(effectiveContent, leadId);
+      const flow = await this.findMatchingFlow(effectiveContent, tenantId, leadId);
       if (!flow || !flow.firstStepId) {
         return { handled: false };
       }
@@ -112,11 +113,11 @@ export class BotEngine {
         leadId: leadId ?? undefined,
         firstStepId: flow.firstStepId,
       });
-      await this.sessionRepository.save(session);
+      await this.sessionRepository.save(session, tenantId);
 
-      await this.log(session.id, null, "session_started", { flowName: flow.name });
+      await this.log(session.id, null, "session_started", { flowName: flow.name }, tenantId);
 
-      await this.runLoop(session, contactId);
+      await this.runLoop(session, contactId, tenantId);
       return { handled: true };
     } catch (err) {
       console.error("[BotEngine] Error:", err);
@@ -128,23 +129,44 @@ export class BotEngine {
     const sessions = await this.sessionRepository.findDelayedReady();
     for (const session of sessions) {
       try {
+        // We need tenantId for each session. Look it up from the bot_sessions table.
+        const tenantId = await this.getTenantIdForBotSession(session.id);
+        if (!tenantId) {
+          console.error(`[BotEngine] No tenant found for bot session ${session.id}`);
+          continue;
+        }
+
         const resumed = session.withStatus("active", session.currentStepId);
-        await this.sessionRepository.save(resumed);
+        await this.sessionRepository.save(resumed, tenantId);
 
         // Find contact's whatsappId to send messages
-        await this.runLoop(resumed, session.contactId);
+        await this.runLoop(resumed, session.contactId, tenantId);
       } catch (err) {
         console.error(`[BotEngine] Error resuming session ${session.id}:`, err);
       }
     }
   }
 
+  private async getTenantIdForBotSession(sessionId: string): Promise<string | null> {
+    // Direct DB query to get tenantId from bot_sessions
+    const { eq } = await import("drizzle-orm");
+    const { db } = await import("../../../../Infrastructure/Database/Drizzle/client");
+    const { botSessions } = await import("../../../../Infrastructure/Database/Schemas/botSessions");
+    const rows = await db
+      .select({ tenantId: botSessions.tenantId })
+      .from(botSessions)
+      .where(eq(botSessions.id, sessionId))
+      .limit(1);
+    return rows[0]?.tenantId ?? null;
+  }
+
   private async handleResponse(
     session: BotSession,
-    content: string
+    content: string,
+    tenantId: string
   ): Promise<BotSession> {
     const step = session.currentStepId
-      ? await this.stepRepository.findById(session.currentStepId)
+      ? await this.stepRepository.findById(session.currentStepId, tenantId)
       : null;
 
     if (!step || (step.type !== "ask_question" && step.type !== "multi_choice" && step.type !== "ai_chat")) {
@@ -153,12 +175,12 @@ export class BotEngine {
 
     // Handle ai_chat
     if (step.type === "ai_chat") {
-      return this.handleAIChatResponse(session, step, content);
+      return this.handleAIChatResponse(session, step, content, tenantId);
     }
 
     // Handle multi_choice
     if (step.type === "multi_choice") {
-      return this.handleMultiChoiceResponse(session, step, content);
+      return this.handleMultiChoiceResponse(session, step, content, tenantId);
     }
 
     const config = step.getParsedConfig<AskQuestionConfig>();
@@ -168,10 +190,10 @@ export class BotEngine {
       const maxRetries = config.maxRetries ?? 2;
       if (session.retryCount < maxRetries) {
         const invalidMsg = config.invalidMessage ?? "Resposta invalida. Tente novamente.";
-        await this.sendWhatsAppMessage(session.contactId, invalidMsg);
+        await this.sendWhatsAppMessage(session.contactId, invalidMsg, tenantId);
         const retried = session.withRetryIncrement();
-        await this.sessionRepository.save(retried);
-        await this.log(session.id, step.id, "invalid_response", { content, retryCount: retried.retryCount });
+        await this.sessionRepository.save(retried, tenantId);
+        await this.log(session.id, step.id, "invalid_response", { content, retryCount: retried.retryCount }, tenantId);
         return retried;
       }
     }
@@ -189,7 +211,7 @@ export class BotEngine {
     // Save to lead field if configured
     if (config.saveToLeadField && session.leadId) {
       try {
-        const lead = await this.leadRepository.findById(session.leadId);
+        const lead = await this.leadRepository.findById(session.leadId, tenantId);
         if (lead) {
           const fieldMap: Record<string, string> = {
             name: "name",
@@ -205,7 +227,7 @@ export class BotEngine {
               [config.saveToLeadField]: content,
               updatedAt: new Date(),
             });
-            await this.leadRepository.save(updatedLead);
+            await this.leadRepository.save(updatedLead, tenantId);
           }
         }
       } catch (err) {
@@ -213,16 +235,16 @@ export class BotEngine {
       }
     }
 
-    await this.sessionRepository.save(updated);
+    await this.sessionRepository.save(updated, tenantId);
     await this.log(session.id, step.id, "response_received", {
       variable: config.variableName,
       value: content,
-    });
+    }, tenantId);
 
     return updated;
   }
 
-  private async runLoop(session: BotSession, contactId: string): Promise<void> {
+  private async runLoop(session: BotSession, contactId: string, tenantId: string): Promise<void> {
     let current = session;
     let stepsExecuted = 0;
 
@@ -231,14 +253,14 @@ export class BotEngine {
       current.currentStepId &&
       stepsExecuted < MAX_STEPS_PER_RUN
     ) {
-      const step = await this.stepRepository.findById(current.currentStepId);
+      const step = await this.stepRepository.findById(current.currentStepId, tenantId);
       if (!step) {
         current = current.withStatus("completed", null);
-        await this.sessionRepository.save(current);
+        await this.sessionRepository.save(current, tenantId);
         break;
       }
 
-      const result = await this.processStep(current, step, contactId);
+      const result = await this.processStep(current, step, contactId, tenantId);
 
       if (result === "wait") {
         // Session already saved with waiting status
@@ -247,8 +269,8 @@ export class BotEngine {
 
       if (result === "end") {
         current = current.withStatus("completed", null);
-        await this.sessionRepository.save(current);
-        await this.log(current.id, step.id, "flow_completed", {});
+        await this.sessionRepository.save(current, tenantId);
+        await this.log(current.id, step.id, "flow_completed", {}, tenantId);
         break;
       }
 
@@ -258,41 +280,42 @@ export class BotEngine {
         currentStepId: result,
         status: "active",
       });
-      await this.sessionRepository.save(current);
+      await this.sessionRepository.save(current, tenantId);
       stepsExecuted++;
     }
 
     if (stepsExecuted >= MAX_STEPS_PER_RUN) {
       console.error(`[BotEngine] Max steps reached for session ${current.id}, pausing`);
       current = current.withStatus("paused", current.currentStepId);
-      await this.sessionRepository.save(current);
+      await this.sessionRepository.save(current, tenantId);
     }
   }
 
   private async processStep(
     session: BotSession,
     step: BotStep,
-    contactId: string
+    contactId: string,
+    tenantId: string
   ): Promise<string | "wait" | "end"> {
-    await this.log(session.id, step.id, "step_executed", { type: step.type });
+    await this.log(session.id, step.id, "step_executed", { type: step.type }, tenantId);
 
     switch (step.type) {
       case "send_message":
-        return this.executeSendMessage(session, step, contactId);
+        return this.executeSendMessage(session, step, contactId, tenantId);
       case "ask_question":
-        return this.executeAskQuestion(session, step, contactId);
+        return this.executeAskQuestion(session, step, contactId, tenantId);
       case "condition":
-        return this.executeCondition(session, step);
+        return this.executeCondition(session, step, tenantId);
       case "action":
-        return this.executeAction(session, step);
+        return this.executeAction(session, step, tenantId);
       case "delay":
-        return this.executeDelay(session, step);
+        return this.executeDelay(session, step, tenantId);
       case "multi_choice":
-        return this.executeMultiChoice(session, step, contactId);
+        return this.executeMultiChoice(session, step, contactId, tenantId);
       case "multi_action":
-        return this.executeMultiAction(session, step);
+        return this.executeMultiAction(session, step, tenantId);
       case "ai_chat":
-        return this.executeAIChat(session, step, contactId);
+        return this.executeAIChat(session, step, contactId, tenantId);
       default:
         return step.nextStepId ?? "end";
     }
@@ -301,22 +324,24 @@ export class BotEngine {
   private async executeSendMessage(
     session: BotSession,
     step: BotStep,
-    contactId: string
+    contactId: string,
+    tenantId: string
   ): Promise<string | "end"> {
     const config = step.getParsedConfig<SendMessageConfig>();
     const message = this.interpolateVariables(config.message, session.variables);
-    await this.sendWhatsAppMessage(contactId, message);
+    await this.sendWhatsAppMessage(contactId, message, tenantId);
     return step.nextStepId ?? "end";
   }
 
   private async executeAskQuestion(
     session: BotSession,
     step: BotStep,
-    contactId: string
+    contactId: string,
+    tenantId: string
   ): Promise<"wait"> {
     const config = step.getParsedConfig<AskQuestionConfig>();
     const question = this.interpolateVariables(config.question, session.variables);
-    await this.sendWhatsAppMessage(contactId, question);
+    await this.sendWhatsAppMessage(contactId, question, tenantId);
 
     const waiting = new BotSession({
       ...session.props,
@@ -324,15 +349,16 @@ export class BotEngine {
       currentStepId: step.id,
       retryCount: "0",
     });
-    await this.sessionRepository.save(waiting);
+    await this.sessionRepository.save(waiting, tenantId);
     return "wait";
   }
 
   private async executeCondition(
     session: BotSession,
-    step: BotStep
+    step: BotStep,
+    tenantId: string
   ): Promise<string | "end"> {
-    const conditions = await this.conditionRepository.findByStepId(step.id);
+    const conditions = await this.conditionRepository.findByStepId(step.id, tenantId);
 
     for (const condition of conditions) {
       const varValue = session.getVariable(
@@ -348,17 +374,17 @@ export class BotEngine {
       if (matches) {
         // Execute inline action if present
         if (condition.action) {
-          await this.executeInlineAction(session, condition.action);
+          await this.executeInlineAction(session, condition.action, tenantId);
           await this.log(session.id, step.id, "branch_action_executed", {
             label: condition.label,
             actionType: condition.action.actionType,
-          });
+          }, tenantId);
         }
 
         await this.log(session.id, step.id, "condition_matched", {
           label: condition.label,
           variable: varValue,
-        });
+        }, tenantId);
         return condition.nextStepId ?? step.nextStepId ?? "end";
       }
     }
@@ -369,7 +395,8 @@ export class BotEngine {
 
   private async executeAction(
     session: BotSession,
-    step: BotStep
+    step: BotStep,
+    tenantId: string
   ): Promise<string | "end"> {
     const config = step.getParsedConfig<ActionConfig>();
 
@@ -381,26 +408,26 @@ export class BotEngine {
               session.leadId,
               config.stageId,
               0,
-              undefined
+              tenantId
             );
           }
           break;
 
         case "add_tag":
           if (session.leadId && config.tag) {
-            const lead = await this.leadRepository.findById(session.leadId);
+            const lead = await this.leadRepository.findById(session.leadId, tenantId);
             if (lead) {
               const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
               const tags = [...(lead.tags ?? []), config.tag];
               const updated = new Lead({ ...lead.props, tags, updatedAt: new Date() });
-              await this.leadRepository.save(updated);
+              await this.leadRepository.save(updated, tenantId);
             }
           }
           break;
 
         case "assign_to_user":
           if (session.leadId && config.userId) {
-            const lead = await this.leadRepository.findById(session.leadId);
+            const lead = await this.leadRepository.findById(session.leadId, tenantId);
             if (lead) {
               const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
               const updated = new Lead({
@@ -408,14 +435,14 @@ export class BotEngine {
                 assignedTo: config.userId,
                 updatedAt: new Date(),
               });
-              await this.leadRepository.save(updated);
+              await this.leadRepository.save(updated, tenantId);
             }
           }
           break;
 
         case "update_field":
           if (session.leadId && config.fieldName && config.fieldValue) {
-            const lead = await this.leadRepository.findById(session.leadId);
+            const lead = await this.leadRepository.findById(session.leadId, tenantId);
             if (lead) {
               const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
               const value = this.interpolateVariables(
@@ -427,26 +454,26 @@ export class BotEngine {
                 [config.fieldName]: value,
                 updatedAt: new Date(),
               });
-              await this.leadRepository.save(updated);
+              await this.leadRepository.save(updated, tenantId);
             }
           }
           break;
 
         case "handoff_to_human":
           const paused = session.withStatus("paused", step.nextStepId);
-          await this.sessionRepository.save(paused);
-          await this.log(session.id, step.id, "handoff_to_human", {});
+          await this.sessionRepository.save(paused, tenantId);
+          await this.log(session.id, step.id, "handoff_to_human", {}, tenantId);
           return "end";
       }
 
       await this.log(session.id, step.id, "action_executed", {
         actionType: config.actionType,
-      });
+      }, tenantId);
     } catch (err) {
       console.error("[BotEngine] Action error:", err);
       await this.log(session.id, step.id, "error", {
         error: String(err),
-      });
+      }, tenantId);
     }
 
     return step.nextStepId ?? "end";
@@ -454,7 +481,8 @@ export class BotEngine {
 
   private async executeDelay(
     session: BotSession,
-    step: BotStep
+    step: BotStep,
+    tenantId: string
   ): Promise<"wait"> {
     const config = step.getParsedConfig<DelayConfig>();
     const delayUntil = new Date(Date.now() + config.delayMinutes * 60_000);
@@ -465,12 +493,12 @@ export class BotEngine {
       currentStepId: step.nextStepId,
       delayUntil,
     });
-    await this.sessionRepository.save(delayed);
+    await this.sessionRepository.save(delayed, tenantId);
 
     await this.log(session.id, step.id, "delay_started", {
       delayMinutes: config.delayMinutes,
       resumeAt: delayUntil.toISOString(),
-    });
+    }, tenantId);
 
     return "wait";
   }
@@ -478,7 +506,8 @@ export class BotEngine {
   private async executeMultiChoice(
     session: BotSession,
     step: BotStep,
-    contactId: string
+    contactId: string,
+    tenantId: string
   ): Promise<"wait"> {
     const config = step.getParsedConfig<MultiChoiceConfig>();
     const choices = config.choices || [];
@@ -492,7 +521,7 @@ export class BotEngine {
       });
     }
 
-    await this.sendWhatsAppMessage(contactId, text);
+    await this.sendWhatsAppMessage(contactId, text, tenantId);
 
     const waiting = new BotSession({
       ...session.props,
@@ -500,14 +529,15 @@ export class BotEngine {
       currentStepId: step.id,
       retryCount: "0",
     });
-    await this.sessionRepository.save(waiting);
+    await this.sessionRepository.save(waiting, tenantId);
     return "wait";
   }
 
   private async handleMultiChoiceResponse(
     session: BotSession,
     step: BotStep,
-    content: string
+    content: string,
+    tenantId: string
   ): Promise<BotSession> {
     const config = step.getParsedConfig<MultiChoiceConfig>();
     const choices = config.choices || [];
@@ -532,9 +562,9 @@ export class BotEngine {
       if (session.retryCount < maxRetries) {
         const invalidMsg =
           config.invalidMessage ?? "Opcao invalida. Escolha um numero da lista.";
-        await this.sendWhatsAppMessage(session.contactId, invalidMsg);
+        await this.sendWhatsAppMessage(session.contactId, invalidMsg, tenantId);
         const retried = session.withRetryIncrement();
-        await this.sessionRepository.save(retried);
+        await this.sessionRepository.save(retried, tenantId);
         return retried;
       }
       // Max retries - save raw and use conditions fallback
@@ -547,7 +577,7 @@ export class BotEngine {
     // Save to lead field if configured
     if (config.saveToLeadField && session.leadId) {
       try {
-        const lead = await this.leadRepository.findById(session.leadId);
+        const lead = await this.leadRepository.findById(session.leadId, tenantId);
         if (lead) {
           const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
           const updatedLead = new Lead({
@@ -555,7 +585,7 @@ export class BotEngine {
             [config.saveToLeadField]: matched.value,
             updatedAt: new Date(),
           });
-          await this.leadRepository.save(updatedLead);
+          await this.leadRepository.save(updatedLead, tenantId);
         }
       } catch {}
     }
@@ -564,10 +594,10 @@ export class BotEngine {
       variable: config.variableName,
       label: matched.label,
       value: matched.value,
-    });
+    }, tenantId);
 
     // Check conditions for branching + execute inline action
-    const conditions = await this.conditionRepository.findByStepId(step.id);
+    const conditions = await this.conditionRepository.findByStepId(step.id, tenantId);
     let nextStepId = step.nextStepId;
 
     for (const condition of conditions) {
@@ -579,11 +609,11 @@ export class BotEngine {
       if (matches) {
         // Execute inline action if present
         if (condition.action) {
-          await this.executeInlineAction(updated, condition.action);
+          await this.executeInlineAction(updated, condition.action, tenantId);
           await this.log(session.id, step.id, "branch_action_executed", {
             label: condition.label,
             actionType: condition.action.actionType,
-          });
+          }, tenantId);
         }
 
         if (condition.nextStepId) {
@@ -593,7 +623,7 @@ export class BotEngine {
         await this.log(session.id, step.id, "condition_matched", {
           label: condition.label,
           value: matched.value,
-        });
+        }, tenantId);
         break;
       }
     }
@@ -605,13 +635,14 @@ export class BotEngine {
       currentStepId: nextStepId,
       lastInteractionAt: new Date(),
     });
-    await this.sessionRepository.save(updated);
+    await this.sessionRepository.save(updated, tenantId);
     return updated;
   }
 
   private async executeMultiAction(
     session: BotSession,
-    step: BotStep
+    step: BotStep,
+    tenantId: string
   ): Promise<string | "end"> {
     const config = step.getParsedConfig<MultiActionConfig>();
 
@@ -624,26 +655,26 @@ export class BotEngine {
                 session.leadId,
                 action.stageId,
                 0,
-                undefined
+                tenantId
               );
             }
             break;
 
           case "add_tag":
             if (session.leadId && action.tag) {
-              const lead = await this.leadRepository.findById(session.leadId);
+              const lead = await this.leadRepository.findById(session.leadId, tenantId);
               if (lead) {
                 const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
                 const tags = [...(lead.tags ?? []), action.tag];
                 const updated = new Lead({ ...lead.props, tags, updatedAt: new Date() });
-                await this.leadRepository.save(updated);
+                await this.leadRepository.save(updated, tenantId);
               }
             }
             break;
 
           case "assign_to_user":
             if (session.leadId && action.userId) {
-              const lead = await this.leadRepository.findById(session.leadId);
+              const lead = await this.leadRepository.findById(session.leadId, tenantId);
               if (lead) {
                 const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
                 const updated = new Lead({
@@ -651,14 +682,14 @@ export class BotEngine {
                   assignedTo: action.userId,
                   updatedAt: new Date(),
                 });
-                await this.leadRepository.save(updated);
+                await this.leadRepository.save(updated, tenantId);
               }
             }
             break;
 
           case "update_field":
             if (session.leadId && action.fieldName && action.fieldValue) {
-              const lead = await this.leadRepository.findById(session.leadId);
+              const lead = await this.leadRepository.findById(session.leadId, tenantId);
               if (lead) {
                 const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
                 const value = this.interpolateVariables(action.fieldValue, session.variables);
@@ -667,21 +698,21 @@ export class BotEngine {
                   [action.fieldName]: value,
                   updatedAt: new Date(),
                 });
-                await this.leadRepository.save(updated);
+                await this.leadRepository.save(updated, tenantId);
               }
             }
             break;
 
           case "handoff_to_human":
             const paused = session.withStatus("paused", step.nextStepId);
-            await this.sessionRepository.save(paused);
-            await this.log(session.id, step.id, "handoff_to_human", {});
+            await this.sessionRepository.save(paused, tenantId);
+            await this.log(session.id, step.id, "handoff_to_human", {}, tenantId);
             return "end";
         }
 
         await this.log(session.id, step.id, "action_executed", {
           actionType: action.actionType,
-        });
+        }, tenantId);
       } catch (err) {
         console.error("[BotEngine] Multi-action error:", err);
       }
@@ -693,14 +724,15 @@ export class BotEngine {
   private async executeAIChat(
     session: BotSession,
     step: BotStep,
-    contactId: string
+    contactId: string,
+    tenantId: string
   ): Promise<"wait"> {
     const config = step.getParsedConfig<AIChatConfig>();
 
     // Send initial AI greeting if this is first entry
     if (!session.getVariable("__ai_turn_count")) {
       const greeting = await this.getAIResponse(config, [], "O usuario acabou de entrar no chat. Envie uma saudacao.");
-      await this.sendWhatsAppMessage(contactId, greeting);
+      await this.sendWhatsAppMessage(contactId, greeting, tenantId);
 
       const updated = new BotSession({
         ...session.props,
@@ -708,7 +740,7 @@ export class BotEngine {
         currentStepId: step.id,
         variables: { ...session.variables, __ai_turn_count: "1", __ai_history: JSON.stringify([{ role: "assistant", content: greeting }]) },
       });
-      await this.sessionRepository.save(updated);
+      await this.sessionRepository.save(updated, tenantId);
     }
 
     return "wait";
@@ -717,7 +749,8 @@ export class BotEngine {
   private async handleAIChatResponse(
     session: BotSession,
     step: BotStep,
-    content: string
+    content: string,
+    tenantId: string
   ): Promise<BotSession> {
     const config = step.getParsedConfig<AIChatConfig>();
 
@@ -727,9 +760,10 @@ export class BotEngine {
       if (config.handoffKeywords.some((kw) => lower.includes(kw.toLowerCase()))) {
         await this.sendWhatsAppMessage(
           session.contactId,
-          "Entendi! Vou transferir voce para um atendente humano. Aguarde um momento."
+          "Entendi! Vou transferir voce para um atendente humano. Aguarde um momento.",
+          tenantId
         );
-        await this.log(session.id, step.id, "ai_handoff", { trigger: content });
+        await this.log(session.id, step.id, "ai_handoff", { trigger: content }, tenantId);
 
         const paused = new BotSession({
           ...session.props,
@@ -737,7 +771,7 @@ export class BotEngine {
           currentStepId: step.nextStepId,
           lastInteractionAt: new Date(),
         });
-        await this.sessionRepository.save(paused);
+        await this.sessionRepository.save(paused, tenantId);
         return paused;
       }
     }
@@ -748,7 +782,8 @@ export class BotEngine {
     if (turnCount >= maxTurns) {
       await this.sendWhatsAppMessage(
         session.contactId,
-        "Vou transferir voce para um atendente para continuar. Aguarde!"
+        "Vou transferir voce para um atendente para continuar. Aguarde!",
+        tenantId
       );
       const next = new BotSession({
         ...session.props,
@@ -756,7 +791,7 @@ export class BotEngine {
         currentStepId: step.nextStepId,
         lastInteractionAt: new Date(),
       });
-      await this.sessionRepository.save(next);
+      await this.sessionRepository.save(next, tenantId);
       return next;
     }
 
@@ -768,7 +803,7 @@ export class BotEngine {
 
     // Get AI response
     const aiResponse = await this.getAIResponse(config, history, content);
-    await this.sendWhatsAppMessage(session.contactId, aiResponse);
+    await this.sendWhatsAppMessage(session.contactId, aiResponse, tenantId);
 
     // Update history (keep last 20 messages)
     history.push({ role: "user", content });
@@ -779,7 +814,7 @@ export class BotEngine {
       userMessage: content,
       aiResponse: aiResponse.substring(0, 200),
       turn: turnCount + 1,
-    });
+    }, tenantId);
 
     const updated = new BotSession({
       ...session.props,
@@ -792,7 +827,7 @@ export class BotEngine {
       },
       lastInteractionAt: new Date(),
     });
-    await this.sessionRepository.save(updated);
+    await this.sessionRepository.save(updated, tenantId);
     return updated;
   }
 
@@ -830,44 +865,45 @@ export class BotEngine {
 
   private async executeInlineAction(
     session: BotSession,
-    action: ActionConfig
+    action: ActionConfig,
+    tenantId: string
   ): Promise<void> {
     try {
       switch (action.actionType) {
         case "move_to_stage":
           if (session.leadId && action.stageId) {
-            await this.leadRepository.updatePosition(session.leadId, action.stageId, 0, undefined);
+            await this.leadRepository.updatePosition(session.leadId, action.stageId, 0, tenantId);
           }
           break;
         case "add_tag":
           if (session.leadId && action.tag) {
-            const lead = await this.leadRepository.findById(session.leadId);
+            const lead = await this.leadRepository.findById(session.leadId, tenantId);
             if (lead) {
               const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
               const tags = [...(lead.tags ?? []), action.tag];
               const updated = new Lead({ ...lead.props, tags, updatedAt: new Date() });
-              await this.leadRepository.save(updated);
+              await this.leadRepository.save(updated, tenantId);
             }
           }
           break;
         case "assign_to_user":
           if (session.leadId && action.userId) {
-            const lead = await this.leadRepository.findById(session.leadId);
+            const lead = await this.leadRepository.findById(session.leadId, tenantId);
             if (lead) {
               const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
               const updated = new Lead({ ...lead.props, assignedTo: action.userId, updatedAt: new Date() });
-              await this.leadRepository.save(updated);
+              await this.leadRepository.save(updated, tenantId);
             }
           }
           break;
         case "update_field":
           if (session.leadId && action.fieldName && action.fieldValue) {
-            const lead = await this.leadRepository.findById(session.leadId);
+            const lead = await this.leadRepository.findById(session.leadId, tenantId);
             if (lead) {
               const { Lead } = await import("../../../../Domain/Leads/Models/Lead");
               const value = this.interpolateVariables(action.fieldValue, session.variables);
               const updated = new Lead({ ...lead.props, [action.fieldName]: value, updatedAt: new Date() });
-              await this.leadRepository.save(updated);
+              await this.leadRepository.save(updated, tenantId);
             }
           }
           break;
@@ -883,13 +919,14 @@ export class BotEngine {
 
   private async findMatchingFlow(
     content: string | null,
+    tenantId: string,
     leadId?: string | null
   ) {
     // Get lead's pipeline and stage for scoping
     let pipelineId: string | undefined;
     let leadStageId: string | undefined;
     if (leadId) {
-      const lead = await this.leadRepository.findById(leadId);
+      const lead = await this.leadRepository.findById(leadId, tenantId);
       pipelineId = lead?.pipelineId;
       leadStageId = lead?.stageId;
     }
@@ -907,6 +944,7 @@ export class BotEngine {
     if (content) {
       const keywordFlows = await this.flowRepository.findActiveByTrigger(
         "keyword",
+        tenantId,
         pipelineId
       );
       for (const flow of keywordFlows) {
@@ -925,6 +963,7 @@ export class BotEngine {
     // Try new_message trigger
     const messageFlows = await this.flowRepository.findActiveByTrigger(
       "new_message",
+      tenantId,
       pipelineId
     );
     for (const flow of messageFlows) {
@@ -987,26 +1026,35 @@ export class BotEngine {
 
   private async sendWhatsAppMessage(
     contactId: string,
-    text: string
+    text: string,
+    tenantId: string
   ): Promise<void> {
     try {
-      // Find connected session
-      const sessions = await this.waSessionRepository.findConnected();
-      if (sessions.length === 0) {
-        console.error("[BotEngine] No connected WhatsApp session");
-        return;
-      }
-
-      const sessionId = sessions[0].id;
-
-      // Find contact to get whatsappId
-      // We need the contact's whatsappId - get it from the DB
+      // Find connected session for this tenant
+      // We look up the contact to get whatsappId, then find a connected session
       const { DrizzleContactRepository } = await import(
         "../../../../Infrastructure/Database/Repositories/DrizzleContactRepository"
       );
       const contactRepo = new DrizzleContactRepository();
-      const contact = await contactRepo.findById(contactId);
+      const contact = await contactRepo.findById(contactId, tenantId);
       if (!contact) return;
+
+      // Find a connected session for this tenant
+      const { eq, and } = await import("drizzle-orm");
+      const { db } = await import("../../../../Infrastructure/Database/Drizzle/client");
+      const { whatsappSessions } = await import("../../../../Infrastructure/Database/Schemas/whatsappSessions");
+      const rows = await db
+        .select()
+        .from(whatsappSessions)
+        .where(and(eq(whatsappSessions.tenantId, tenantId), eq(whatsappSessions.status, "connected")))
+        .limit(1);
+
+      if (rows.length === 0) {
+        console.error("[BotEngine] No connected WhatsApp session for tenant");
+        return;
+      }
+
+      const sessionId = rows[0].id;
 
       const whatsappMsgId = await this.waGateway.sendTextMessage(
         sessionId,
@@ -1023,7 +1071,7 @@ export class BotEngine {
         mediaType: "text",
         isFromMe: true,
       });
-      await this.messageRepository.save(message);
+      await this.messageRepository.save(message, tenantId);
     } catch (err) {
       console.error("[BotEngine] Error sending message:", err);
     }
@@ -1033,11 +1081,12 @@ export class BotEngine {
     sessionId: string,
     stepId: string | null,
     event: string,
-    details: Record<string, unknown>
+    details: Record<string, unknown>,
+    tenantId: string
   ): Promise<void> {
     try {
       const log = BotLog.create({ sessionId, stepId: stepId ?? undefined, event, details });
-      await this.logRepository.save(log);
+      await this.logRepository.save(log, tenantId);
     } catch {
       // Silent fail for logging
     }

@@ -1,9 +1,34 @@
 node_modules/
 dist/
+
+# Env
 .env
 .env.local
 .env.*.local
+
+# Logs
 *.log
+logs/
+
+# Coverage
 coverage/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Build
 *.tsbuildinfo
+
+# WhatsApp auth sessions
+whatsapp-auth/
+
+# Uploads
+uploads/
+
+# IDE
+.vscode/
+.idea/
+
+# Docker volumes
+pgdata/

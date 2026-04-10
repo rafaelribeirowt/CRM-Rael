@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { Pipeline } from "../../../Domain/Pipelines/Models/Pipeline";
 import { IPipelineRepository } from "../../../Application/Contracts/Repositories/IPipelineRepository";
 import { db } from "../Drizzle/client";
@@ -18,11 +18,12 @@ function toDomain(row: PipelineRow): Pipeline {
 }
 
 export class DrizzlePipelineRepository implements IPipelineRepository {
-  async save(pipeline: Pipeline): Promise<void> {
+  async save(pipeline: Pipeline, tenantId: string): Promise<void> {
     await db
       .insert(pipelines)
       .values({
         id: pipeline.id,
+        tenantId,
         name: pipeline.name,
         description: pipeline.description,
         isDefault: pipeline.isDefault,
@@ -43,30 +44,34 @@ export class DrizzlePipelineRepository implements IPipelineRepository {
       });
   }
 
-  async findById(id: string): Promise<Pipeline | null> {
+  async findById(id: string, tenantId: string): Promise<Pipeline | null> {
     const rows = await db
       .select()
       .from(pipelines)
-      .where(eq(pipelines.id, id))
+      .where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async findAll(): Promise<Pipeline[]> {
-    const rows = await db.select().from(pipelines).orderBy(pipelines.position);
+  async findAll(tenantId: string): Promise<Pipeline[]> {
+    const rows = await db
+      .select()
+      .from(pipelines)
+      .where(eq(pipelines.tenantId, tenantId))
+      .orderBy(pipelines.position);
     return rows.map(toDomain);
   }
 
-  async findDefault(): Promise<Pipeline | null> {
+  async findDefault(tenantId: string): Promise<Pipeline | null> {
     const rows = await db
       .select()
       .from(pipelines)
-      .where(eq(pipelines.isDefault, true))
+      .where(and(eq(pipelines.isDefault, true), eq(pipelines.tenantId, tenantId)))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async delete(id: string): Promise<void> {
-    await db.delete(pipelines).where(eq(pipelines.id, id));
+  async delete(id: string, tenantId: string): Promise<void> {
+    await db.delete(pipelines).where(and(eq(pipelines.id, id), eq(pipelines.tenantId, tenantId)));
   }
 }

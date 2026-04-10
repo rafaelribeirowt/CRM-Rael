@@ -1,9 +1,10 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../../Infrastructure/Database/Drizzle/client";
 import { settings } from "../../../Infrastructure/Database/Schemas/settings";
 import { env } from "../../../Shared/Env";
+import { AuthenticatedRequest } from "../../Contracts/HttpRequest";
 
 const AI_KEYS = [
   "ANTHROPIC_API_KEY",
@@ -16,10 +17,11 @@ function maskKey(key: string): string {
 }
 
 export class AISettingsController {
-  getSettings = async (_req: Request, res: Response, next: NextFunction) => {
+  getSettings = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.tenantId!;
       // Read from DB first, fallback to env
-      const rows = await db.select().from(settings);
+      const rows = await db.select().from(settings).where(eq(settings.tenantId, tenantId));
       const dbMap = new Map(rows.map((r) => [r.key, r.value]));
 
       const result: Record<string, { configured: boolean; masked: string; source: string }> = {};
@@ -52,8 +54,9 @@ export class AISettingsController {
     }
   };
 
-  saveSettings = async (req: Request, res: Response, next: NextFunction) => {
+  saveSettings = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
+      const tenantId = req.tenantId!;
       const schema = z.object({
         ANTHROPIC_API_KEY: z.string().optional(),
         OPENAI_API_KEY: z.string().optional(),
@@ -65,14 +68,11 @@ export class AISettingsController {
         if (value !== undefined && value !== "") {
           await db
             .insert(settings)
-            .values({ key, value, updatedAt: new Date() })
+            .values({ tenantId, key, value, updatedAt: new Date() })
             .onConflictDoUpdate({
-              target: settings.key,
+              target: [settings.tenantId, settings.key],
               set: { value, updatedAt: new Date() },
             });
-
-          // Update runtime env
-          (env as any)[key] = value;
         }
       }
 
@@ -80,12 +80,12 @@ export class AISettingsController {
       try {
         const anthropicKey =
           data.ANTHROPIC_API_KEY ||
-          (await db.select().from(settings).where(eq(settings.key, "ANTHROPIC_API_KEY")).then((r) => r[0]?.value)) ||
+          (await db.select().from(settings).where(and(eq(settings.tenantId, tenantId), eq(settings.key, "ANTHROPIC_API_KEY"))).then((r) => r[0]?.value)) ||
           env.ANTHROPIC_API_KEY;
 
         const openaiKey =
           data.OPENAI_API_KEY ||
-          (await db.select().from(settings).where(eq(settings.key, "OPENAI_API_KEY")).then((r) => r[0]?.value)) ||
+          (await db.select().from(settings).where(and(eq(settings.tenantId, tenantId), eq(settings.key, "OPENAI_API_KEY"))).then((r) => r[0]?.value)) ||
           env.OPENAI_API_KEY;
 
         if (anthropicKey) {

@@ -7,6 +7,7 @@ import { users, UserRow } from "../Schemas/users";
 function toDomain(row: UserRow): User {
   return new User({
     id: row.id,
+    tenantId: row.tenantId,
     name: row.name,
     email: row.email,
     passwordHash: row.passwordHash,
@@ -23,6 +24,7 @@ export class DrizzleUserRepository implements IUserRepository {
       .insert(users)
       .values({
         id: user.id,
+        tenantId: user.tenantId,
         name: user.name,
         email: user.email,
         passwordHash: user.passwordHash,
@@ -56,6 +58,16 @@ export class DrizzleUserRepository implements IUserRepository {
   async findAll(): Promise<User[]> {
     const rows = await db.select().from(users);
     return rows.map(toDomain);
+  }
+
+  async findAllByTenantId(tenantId: string): Promise<User[]> {
+    const rows = await db.select().from(users).where(eq(users.tenantId, tenantId));
+    return rows.map(toDomain);
+  }
+
+  async countByTenantId(tenantId: string): Promise<number> {
+    const rows = await db.select().from(users).where(eq(users.tenantId, tenantId));
+    return rows.length;
   }
 
   async delete(id: string): Promise<void> {

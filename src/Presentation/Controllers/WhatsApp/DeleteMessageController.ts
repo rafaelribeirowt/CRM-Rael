@@ -10,6 +10,7 @@ export class DeleteMessageController {
       await this.deleteMessage.execute({
         userId: req.userId!,
         messageId: req.params.messageId,
+        tenantId: req.tenantId!,
       });
       res.status(204).send();
     } catch (error) {

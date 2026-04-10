@@ -11,6 +11,7 @@ interface SendMediaMessageInput {
   userId: string;
   contactId: string;
   caption?: string;
+  tenantId: string;
   file: {
     buffer: Buffer;
     mimetype: string;
@@ -27,12 +28,12 @@ export class SendMediaMessage {
   ) {}
 
   async execute(input: SendMediaMessageInput) {
-    const session = await this.sessionRepository.findByUserId(input.userId);
+    const session = await this.sessionRepository.findByUserId(input.userId, input.tenantId);
     if (!session || this.gateway.getStatus(session.id) !== "connected") {
       throw new AppError("WhatsApp not connected", 400, "NOT_CONNECTED");
     }
 
-    const contact = await this.contactRepository.findById(input.contactId);
+    const contact = await this.contactRepository.findById(input.contactId, input.tenantId);
     if (!contact) {
       throw new AppError("Contact not found", 404, "CONTACT_NOT_FOUND");
     }
@@ -74,7 +75,7 @@ export class SendMediaMessage {
       contactId: contact.id,
       whatsappMsgId,
       direction: "outbound",
-      content: input.caption || null,
+      content: input.caption || undefined,
       mediaType,
       mediaUrl,
       mediaMimeType: input.file.mimetype,
@@ -82,7 +83,7 @@ export class SendMediaMessage {
       sentBy: input.userId,
     });
 
-    await this.messageRepository.save(message);
+    await this.messageRepository.save(message, input.tenantId);
 
     return message.toJSON();
   }

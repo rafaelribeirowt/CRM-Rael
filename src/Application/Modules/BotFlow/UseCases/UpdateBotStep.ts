@@ -8,13 +8,14 @@ interface UpdateBotStepInput {
   stepId: string;
   type?: StepType;
   config?: object;
+  tenantId: string;
 }
 
 export class UpdateBotStep {
   constructor(private readonly botStepRepository: IBotStepRepository) {}
 
   async execute(input: UpdateBotStepInput) {
-    const step = await this.botStepRepository.findById(input.stepId);
+    const step = await this.botStepRepository.findById(input.stepId, input.tenantId);
     if (!step) {
       throw new AppError("Bot step not found", 404, "BOT_STEP_NOT_FOUND");
     }
@@ -25,7 +26,7 @@ export class UpdateBotStep {
       config: input.config ? JSON.stringify(input.config) : step.config,
     });
 
-    await this.botStepRepository.save(updated);
+    await this.botStepRepository.save(updated, input.tenantId);
 
     return updated.toJSON();
   }

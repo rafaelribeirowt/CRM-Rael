@@ -36,6 +36,7 @@ export class LoginUser {
     const token = await this.encrypter.encrypt({
       sub: user.id,
       role: user.role,
+      tenantId: user.tenantId,
     });
 
     return {

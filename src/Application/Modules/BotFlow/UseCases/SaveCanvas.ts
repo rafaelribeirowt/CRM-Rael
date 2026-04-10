@@ -37,6 +37,7 @@ interface SaveCanvasInput {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   conditions: CanvasCondition[];
+  tenantId: string;
 }
 
 export class SaveCanvas {
@@ -47,15 +48,15 @@ export class SaveCanvas {
   ) {}
 
   async execute(input: SaveCanvasInput) {
-    const flow = await this.flowRepository.findById(input.flowId);
+    const flow = await this.flowRepository.findById(input.flowId, input.tenantId);
     if (!flow) {
       throw new AppError("Bot flow not found", 404, "BOT_FLOW_NOT_FOUND");
     }
 
     // Delete existing steps (CASCADE deletes conditions too)
-    const existingSteps = await this.stepRepository.findByFlowId(input.flowId);
+    const existingSteps = await this.stepRepository.findByFlowId(input.flowId, input.tenantId);
     for (const step of existingSteps) {
-      await this.stepRepository.delete(step.id);
+      await this.stepRepository.delete(step.id, input.tenantId);
     }
 
     // Build nextStepId map from edges
@@ -80,7 +81,7 @@ export class SaveCanvas {
         positionY: node.positionY,
         createdAt: new Date(),
       });
-      await this.stepRepository.save(step);
+      await this.stepRepository.save(step, input.tenantId);
     }
 
     // Create conditions with nextStepId from edges
@@ -94,7 +95,7 @@ export class SaveCanvas {
         action: cond.action as any,
         position: cond.position,
       });
-      await this.conditionRepository.save(condition);
+      await this.conditionRepository.save(condition, input.tenantId);
     }
 
     // Update flow's firstStepId - find the node that has no incoming edge
@@ -106,7 +107,7 @@ export class SaveCanvas {
       firstStepId: firstNode?.id ?? input.nodes[0]?.id ?? null,
       updatedAt: new Date(),
     });
-    await this.flowRepository.save(updatedFlow);
+    await this.flowRepository.save(updatedFlow, input.tenantId);
 
     return { success: true, stepsCount: input.nodes.length };
   }

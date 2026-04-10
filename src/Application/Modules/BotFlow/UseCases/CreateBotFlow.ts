@@ -9,6 +9,7 @@ interface CreateBotFlowInput {
   triggerConfig?: string;
   pipelineId?: string;
   stageId?: string;
+  tenantId: string;
 }
 
 export class CreateBotFlow {
@@ -24,7 +25,7 @@ export class CreateBotFlow {
       stageId: input.stageId,
     });
 
-    await this.botFlowRepository.save(flow);
+    await this.botFlowRepository.save(flow, input.tenantId);
 
     return flow.toJSON();
   }

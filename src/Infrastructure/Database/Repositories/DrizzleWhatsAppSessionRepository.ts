@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { WhatsAppSession } from "../../../Domain/WhatsApp/Models/WhatsAppSession";
 import { IWhatsAppSessionRepository } from "../../../Application/Contracts/Repositories/IWhatsAppSessionRepository";
 import { db } from "../Drizzle/client";
@@ -18,11 +18,12 @@ function toDomain(row: WhatsAppSessionRow): WhatsAppSession {
 }
 
 export class DrizzleWhatsAppSessionRepository implements IWhatsAppSessionRepository {
-  async save(session: WhatsAppSession): Promise<void> {
+  async save(session: WhatsAppSession, tenantId: string): Promise<void> {
     await db
       .insert(whatsappSessions)
       .values({
         id: session.id,
+        tenantId,
         userId: session.userId,
         sessionName: session.sessionName,
         phoneNumber: session.phoneNumber,
@@ -42,16 +43,17 @@ export class DrizzleWhatsAppSessionRepository implements IWhatsAppSessionReposit
       });
   }
 
-  async findById(id: string): Promise<WhatsAppSession | null> {
+  async findById(id: string, _tenantId?: string): Promise<WhatsAppSession | null> {
     const rows = await db.select().from(whatsappSessions).where(eq(whatsappSessions.id, id)).limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async findByUserId(userId: string): Promise<WhatsAppSession | null> {
-    const rows = await db.select().from(whatsappSessions).where(eq(whatsappSessions.userId, userId)).limit(1);
+  async findByUserId(userId: string, tenantId: string): Promise<WhatsAppSession | null> {
+    const rows = await db.select().from(whatsappSessions).where(and(eq(whatsappSessions.userId, userId), eq(whatsappSessions.tenantId, tenantId))).limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
+  // findConnected returns ALL connected sessions across tenants (used for startup reconnect)
   async findConnected(): Promise<WhatsAppSession[]> {
     const rows = await db.select().from(whatsappSessions).where(eq(whatsappSessions.status, "connected"));
     return rows.map(toDomain);
@@ -70,7 +72,23 @@ export class DrizzleWhatsAppSessionRepository implements IWhatsAppSessionReposit
       .where(eq(whatsappSessions.id, id));
   }
 
-  async delete(id: string): Promise<void> {
-    await db.delete(whatsappSessions).where(eq(whatsappSessions.id, id));
+  async findAllByTenantId(tenantId: string): Promise<WhatsAppSession[]> {
+    const rows = await db
+      .select()
+      .from(whatsappSessions)
+      .where(eq(whatsappSessions.tenantId, tenantId));
+    return rows.map(toDomain);
+  }
+
+  async countByTenantId(tenantId: string): Promise<number> {
+    const rows = await db
+      .select()
+      .from(whatsappSessions)
+      .where(eq(whatsappSessions.tenantId, tenantId));
+    return rows.length;
+  }
+
+  async delete(id: string, tenantId: string): Promise<void> {
+    await db.delete(whatsappSessions).where(and(eq(whatsappSessions.id, id), eq(whatsappSessions.tenantId, tenantId)));
   }
 }

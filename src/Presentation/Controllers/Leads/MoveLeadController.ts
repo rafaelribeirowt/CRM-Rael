@@ -23,6 +23,7 @@ export class MoveLeadController {
         stageId: data.stageId,
         position: data.position,
         userId: req.userId,
+        tenantId: req.tenantId!,
       });
       res.json(result);
     } catch (error) {

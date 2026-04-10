@@ -9,6 +9,7 @@ interface MoveLeadInput {
   stageId: string;
   position: number;
   userId?: string;
+  tenantId: string;
 }
 
 export class MoveLead {
@@ -19,12 +20,12 @@ export class MoveLead {
   ) {}
 
   async execute(input: MoveLeadInput) {
-    const lead = await this.leadRepository.findById(input.leadId);
+    const lead = await this.leadRepository.findById(input.leadId, input.tenantId);
     if (!lead) {
       throw new AppError("Lead not found", 404, "LEAD_NOT_FOUND");
     }
 
-    const newStage = await this.stageRepository.findById(input.stageId);
+    const newStage = await this.stageRepository.findById(input.stageId, input.tenantId);
     if (!newStage) {
       throw new AppError("Stage not found", 404, "STAGE_NOT_FOUND");
     }
@@ -37,6 +38,7 @@ export class MoveLead {
       input.leadId,
       input.stageId,
       input.position,
+      input.tenantId,
       changingPipeline ? newStage.pipelineId : undefined
     );
 
@@ -57,7 +59,7 @@ export class MoveLead {
           toPipelineId: newStage.pipelineId,
         },
       });
-      await this.activityRepository.save(activity);
+      await this.activityRepository.save(activity, input.tenantId);
     }
 
     return { success: true };

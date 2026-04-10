@@ -6,6 +6,10 @@ import { DrizzleLeadRepository } from "../../../Infrastructure/Database/Reposito
 import { DrizzlePipelineRepository } from "../../../Infrastructure/Database/Repositories/DrizzlePipelineRepository";
 import { DrizzlePipelineStageRepository } from "../../../Infrastructure/Database/Repositories/DrizzlePipelineStageRepository";
 import { DrizzleActivityRepository } from "../../../Infrastructure/Database/Repositories/DrizzleActivityRepository";
+import { DrizzleSubscriptionRepository } from "../../../Infrastructure/Database/Repositories/DrizzleSubscriptionRepository";
+import { DrizzlePlanRepository } from "../../../Infrastructure/Database/Repositories/DrizzlePlanRepository";
+import { DrizzleUserRepository } from "../../../Infrastructure/Database/Repositories/DrizzleUserRepository";
+import { LimitEnforcer } from "../../../Application/Services/LimitEnforcer";
 import { InitializeSession } from "../../../Application/Modules/WhatsApp/UseCases/InitializeSession";
 import { GetSessionStatus } from "../../../Application/Modules/WhatsApp/UseCases/GetSessionStatus";
 import { DisconnectSession } from "../../../Application/Modules/WhatsApp/UseCases/DisconnectSession";
@@ -32,12 +36,23 @@ import { DeleteMessageController } from "../../../Presentation/Controllers/Whats
 import { RefreshProfilePicController } from "../../../Presentation/Controllers/WhatsApp/RefreshProfilePicController";
 import { RefreshAllProfilePicsController } from "../../../Presentation/Controllers/WhatsApp/RefreshAllProfilePicsController";
 import { UpdateContactNameController } from "../../../Presentation/Controllers/WhatsApp/UpdateContactNameController";
+import { ListSessions } from "../../../Application/Modules/WhatsApp/UseCases/ListSessions";
+import { DeleteSession } from "../../../Application/Modules/WhatsApp/UseCases/DeleteSession";
+import { ListSessionsController } from "../../../Presentation/Controllers/WhatsApp/ListSessionsController";
+import { DeleteSessionController } from "../../../Presentation/Controllers/WhatsApp/DeleteSessionController";
+import { ToggleContactFlag } from "../../../Application/Modules/WhatsApp/UseCases/ToggleContactFlag";
+import { ListIgnoredContacts } from "../../../Application/Modules/WhatsApp/UseCases/ListIgnoredContacts";
+import { ToggleContactFlagController } from "../../../Presentation/Controllers/WhatsApp/ToggleContactFlagController";
+import { ListIgnoredContactsController } from "../../../Presentation/Controllers/WhatsApp/ListIgnoredContactsController";
 import { Contact } from "../../../Domain/WhatsApp/Models/Contact";
 import { Message } from "../../../Domain/WhatsApp/Models/Message";
 import { Lead } from "../../../Domain/Leads/Models/Lead";
 import { Activity } from "../../../Domain/Activities/Models/Activity";
 import { saveMedia } from "../../../Infrastructure/Storage/MediaStorage";
 import type { IncomingMessage } from "../../../Application/Contracts/WhatsApp/IWhatsAppGateway";
+import { eq } from "drizzle-orm";
+import { db } from "../../../Infrastructure/Database/Drizzle/client";
+import { whatsappSessions } from "../../../Infrastructure/Database/Schemas/whatsappSessions";
 
 // Repositories
 const sessionRepository = new DrizzleWhatsAppSessionRepository();
@@ -48,13 +63,21 @@ const pipelineRepository = new DrizzlePipelineRepository();
 const stageRepository = new DrizzlePipelineStageRepository();
 const activityRepository = new DrizzleActivityRepository();
 
+// Additional repositories for limit enforcement
+const subscriptionRepository = new DrizzleSubscriptionRepository();
+const planRepository = new DrizzlePlanRepository();
+const userRepository = new DrizzleUserRepository();
+const limitEnforcer = new LimitEnforcer(subscriptionRepository, planRepository, leadRepository, userRepository, sessionRepository);
+
 // Gateway (singleton)
 export const baileysGateway = new BaileysGateway();
 
 // Use cases
-const initializeSession = new InitializeSession(sessionRepository, baileysGateway);
+const initializeSession = new InitializeSession(sessionRepository, baileysGateway, limitEnforcer);
 const getSessionStatus = new GetSessionStatus(sessionRepository, baileysGateway);
 const disconnectSession = new DisconnectSession(sessionRepository, baileysGateway);
+const listSessions = new ListSessions(sessionRepository, baileysGateway);
+const deleteSession = new DeleteSession(sessionRepository, baileysGateway);
 const sendMessage = new SendMessage(sessionRepository, contactRepository, messageRepository, baileysGateway);
 const sendMediaMessage = new SendMediaMessage(sessionRepository, contactRepository, messageRepository, baileysGateway);
 const editMessage = new EditMessage(sessionRepository, contactRepository, messageRepository, baileysGateway);
@@ -64,11 +87,15 @@ const listContacts = new ListContacts(contactRepository, messageRepository);
 const convertContactToLead = new ConvertContactToLead(contactRepository, leadRepository, stageRepository, activityRepository);
 const deleteContact = new DeleteContact(contactRepository);
 const updateContactName = new UpdateContactName(contactRepository);
+const toggleContactFlag = new ToggleContactFlag(contactRepository);
+const listIgnoredContacts = new ListIgnoredContacts(contactRepository);
 
 // Controllers
 export const initializeSessionController = new InitializeSessionController(initializeSession);
 export const getSessionStatusController = new GetSessionStatusController(getSessionStatus);
 export const disconnectSessionController = new DisconnectSessionController(disconnectSession);
+export const listSessionsController = new ListSessionsController(listSessions);
+export const deleteSessionController = new DeleteSessionController(deleteSession);
 export const sendMessageController = new SendMessageController(sendMessage);
 export const listMessagesController = new ListMessagesController(listMessages);
 export const listContactsController = new ListContactsController(listContacts);
@@ -80,6 +107,18 @@ export const deleteMessageController = new DeleteMessageController(deleteMessage
 export const updateContactNameController = new UpdateContactNameController(updateContactName);
 export const refreshProfilePicController = new RefreshProfilePicController(contactRepository, sessionRepository, baileysGateway);
 export const refreshAllProfilePicsController = new RefreshAllProfilePicsController(contactRepository, sessionRepository, baileysGateway);
+export const toggleContactFlagController = new ToggleContactFlagController(toggleContactFlag);
+export const listIgnoredContactsController = new ListIgnoredContactsController(listIgnoredContacts);
+
+// Helper: look up tenantId from a WhatsApp session ID
+async function getTenantIdFromSessionId(sessionId: string): Promise<string | null> {
+  const rows = await db
+    .select({ tenantId: whatsappSessions.tenantId })
+    .from(whatsappSessions)
+    .where(eq(whatsappSessions.id, sessionId))
+    .limit(1);
+  return rows[0]?.tenantId ?? null;
+}
 
 // Setup message handler - auto-creates contacts and leads from incoming WhatsApp messages
 let ioGetter: (() => import("socket.io").Server) | null = null;
@@ -95,12 +134,25 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
   // Handle incoming messages
   baileysGateway.onMessage(async (sessionId: string, msg: IncomingMessage) => {
     try {
+      // Derive tenantId from sessionId
+      const tenantId = await getTenantIdFromSessionId(sessionId);
+      if (!tenantId) {
+        console.error(`[WhatsApp] No tenant found for session ${sessionId}`);
+        return;
+      }
+
       const phone = msg.remoteJid.replace("@s.whatsapp.net", "");
       console.log(`[WhatsApp] Message received from ${phone}: "${msg.content}"`);
 
       // Find or create contact
-      let contact = await contactRepository.findByWhatsAppId(msg.remoteJid);
+      let contact = await contactRepository.findByWhatsAppId(msg.remoteJid, tenantId);
       let isNewContact = false;
+
+      // Skip ignored contacts
+      if (contact?.isIgnored) {
+        console.log(`[WhatsApp] Ignoring message from ignored contact ${phone}`);
+        return;
+      }
 
       if (!contact) {
         isNewContact = true;
@@ -119,20 +171,20 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
           name: msg.pushName,
           profilePicUrl,
         });
-        await contactRepository.save(contact);
+        await contactRepository.save(contact, tenantId);
         console.log(`[WhatsApp] Contact created: ${contact.id}`);
       }
 
       // Auto-create lead for new contacts
       if (isNewContact) {
         try {
-          let lead = await leadRepository.findByPhone(phone);
+          let lead = await leadRepository.findByPhone(phone, tenantId);
           if (!lead) {
-            const defaultPipeline = await pipelineRepository.findDefault();
+            const defaultPipeline = await pipelineRepository.findDefault(tenantId);
             console.log(`[WhatsApp] Default pipeline: ${defaultPipeline?.id ?? "NOT FOUND"}`);
 
             if (defaultPipeline) {
-              const firstStage = await stageRepository.findFirstByPipelineId(defaultPipeline.id);
+              const firstStage = await stageRepository.findFirstByPipelineId(defaultPipeline.id, tenantId);
               console.log(`[WhatsApp] First stage: ${firstStage?.id ?? "NOT FOUND"}`);
 
               if (firstStage) {
@@ -143,7 +195,7 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
                   pipelineId: defaultPipeline.id,
                   source: "whatsapp",
                 });
-                await leadRepository.save(lead);
+                await leadRepository.save(lead, tenantId);
                 console.log(`[WhatsApp] Lead created: ${lead.id} - ${lead.name}`);
 
                 const activity = Activity.create({
@@ -151,7 +203,7 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
                   type: "created",
                   description: `Lead auto-criado via WhatsApp`,
                 });
-                await activityRepository.save(activity);
+                await activityRepository.save(activity, tenantId);
 
                 if (ioGetter) {
                   ioGetter().emit("lead:created", lead.toJSON());
@@ -166,7 +218,7 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
               ...contact.props,
               leadId: lead.id,
             });
-            await contactRepository.save(updatedContact);
+            await contactRepository.save(updatedContact, tenantId);
             contact = updatedContact;
             console.log(`[WhatsApp] Contact linked to lead: ${lead.id}`);
           }
@@ -191,14 +243,14 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
         contactId: contact.id,
         whatsappMsgId: msg.messageId,
         direction: msg.isFromMe ? "outbound" : "inbound",
-        content: msg.content,
+        content: msg.content ?? undefined,
         mediaType: msg.mediaType || "text",
         mediaUrl,
-        mediaMimeType: msg.mediaMimeType,
+        mediaMimeType: msg.mediaMimeType ?? undefined,
         isFromMe: msg.isFromMe,
         timestamp: msg.timestamp,
       });
-      await messageRepository.save(message);
+      await messageRepository.save(message, tenantId);
       console.log(`[WhatsApp] Message saved: ${message.id}`);
 
       // Emit to socket
@@ -222,6 +274,7 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
           const result = await botEngineRef.handleIncomingMessage(
             contact.id,
             msg.content,
+            tenantId,
             contact.leadId,
             {
               mediaType: msg.mediaType,
@@ -243,7 +296,14 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
   });
 
   // Handle history sync - save old messages in bulk
-  baileysGateway.onHistorySync(async (_sessionId: string, msgs: IncomingMessage[]) => {
+  baileysGateway.onHistorySync(async (sessionId: string, msgs: IncomingMessage[]) => {
+    // Derive tenantId from sessionId
+    const tenantId = await getTenantIdFromSessionId(sessionId);
+    if (!tenantId) {
+      console.error(`[WhatsApp] No tenant found for session ${sessionId} during history sync`);
+      return;
+    }
+
     console.log(`[WhatsApp] Processing history sync: ${msgs.length} messages`);
     let savedCount = 0;
 
@@ -252,7 +312,7 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
         const phone = msg.remoteJid.replace("@s.whatsapp.net", "");
 
         // Find or create contact (only contact, no lead - user chooses manually)
-        let contact = await contactRepository.findByWhatsAppId(msg.remoteJid);
+        let contact = await contactRepository.findByWhatsAppId(msg.remoteJid, tenantId);
         if (!contact) {
           contact = Contact.create({
             whatsappId: msg.remoteJid,
@@ -260,7 +320,7 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
             pushName: msg.pushName,
             name: msg.pushName,
           });
-          await contactRepository.save(contact);
+          await contactRepository.save(contact, tenantId);
         }
 
         // Save message (skip duplicates via onConflictDoNothing on whatsapp_msg_id)
@@ -268,12 +328,12 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
           contactId: contact.id,
           whatsappMsgId: msg.messageId,
           direction: msg.isFromMe ? "outbound" : "inbound",
-          content: msg.content,
+          content: msg.content ?? undefined,
           mediaType: "text",
           isFromMe: msg.isFromMe,
           timestamp: msg.timestamp,
         });
-        await messageRepository.save(message);
+        await messageRepository.save(message, tenantId);
         savedCount++;
       } catch {
         // Skip duplicates and errors silently
@@ -303,7 +363,7 @@ export function setupWhatsAppHandlers(getIO: () => import("socket.io").Server) {
   });
 }
 
-// Reconnect existing sessions on startup
+// Reconnect existing sessions on startup (across ALL tenants)
 export async function reconnectSessions() {
   const sessions = await sessionRepository.findConnected();
   for (const session of sessions) {

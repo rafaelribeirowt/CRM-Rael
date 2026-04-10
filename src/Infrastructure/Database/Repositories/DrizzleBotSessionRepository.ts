@@ -22,11 +22,12 @@ function toDomain(row: BotSessionRow): BotSession {
 }
 
 export class DrizzleBotSessionRepository implements IBotSessionRepository {
-  async save(session: BotSession): Promise<void> {
+  async save(session: BotSession, tenantId: string): Promise<void> {
     await db
       .insert(botSessions)
       .values({
         id: session.id,
+        tenantId,
         flowId: session.flowId,
         contactId: session.contactId,
         leadId: session.leadId,
@@ -56,22 +57,23 @@ export class DrizzleBotSessionRepository implements IBotSessionRepository {
       });
   }
 
-  async findById(id: string): Promise<BotSession | null> {
+  async findById(id: string, tenantId: string): Promise<BotSession | null> {
     const rows = await db
       .select()
       .from(botSessions)
-      .where(eq(botSessions.id, id))
+      .where(and(eq(botSessions.id, id), eq(botSessions.tenantId, tenantId)))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async findActiveByContactId(contactId: string): Promise<BotSession | null> {
+  async findActiveByContactId(contactId: string, tenantId: string): Promise<BotSession | null> {
     const rows = await db
       .select()
       .from(botSessions)
       .where(
         and(
           eq(botSessions.contactId, contactId),
+          eq(botSessions.tenantId, tenantId),
           inArray(botSessions.status, ["active", "waiting_response", "waiting_delay"])
         )
       )
@@ -79,6 +81,7 @@ export class DrizzleBotSessionRepository implements IBotSessionRepository {
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
+  // findDelayedReady returns ALL delayed-ready sessions across tenants (used for timer)
   async findDelayedReady(): Promise<BotSession[]> {
     const rows = await db
       .select()
@@ -92,28 +95,28 @@ export class DrizzleBotSessionRepository implements IBotSessionRepository {
     return rows.map(toDomain);
   }
 
-  async findByFlowId(flowId: string): Promise<BotSession[]> {
+  async findByFlowId(flowId: string, tenantId: string): Promise<BotSession[]> {
     const rows = await db
       .select()
       .from(botSessions)
-      .where(eq(botSessions.flowId, flowId));
+      .where(and(eq(botSessions.flowId, flowId), eq(botSessions.tenantId, tenantId)));
     return rows.map(toDomain);
   }
 
-  async findByContactId(contactId: string): Promise<BotSession[]> {
+  async findByContactId(contactId: string, tenantId: string): Promise<BotSession[]> {
     const rows = await db
       .select()
       .from(botSessions)
-      .where(eq(botSessions.contactId, contactId));
+      .where(and(eq(botSessions.contactId, contactId), eq(botSessions.tenantId, tenantId)));
     return rows.map(toDomain);
   }
 
-  async findAllSessions(): Promise<BotSession[]> {
-    const rows = await db.select().from(botSessions);
+  async findAllSessions(tenantId: string): Promise<BotSession[]> {
+    const rows = await db.select().from(botSessions).where(eq(botSessions.tenantId, tenantId));
     return rows.map(toDomain);
   }
 
-  async delete(id: string): Promise<void> {
-    await db.delete(botSessions).where(eq(botSessions.id, id));
+  async delete(id: string, tenantId: string): Promise<void> {
+    await db.delete(botSessions).where(and(eq(botSessions.id, id), eq(botSessions.tenantId, tenantId)));
   }
 }

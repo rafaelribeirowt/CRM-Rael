@@ -13,13 +13,13 @@ export class EditMessage {
     private readonly gateway: IWhatsAppGateway
   ) {}
 
-  async execute(input: { userId: string; messageId: string; newContent: string }) {
-    const session = await this.sessionRepository.findByUserId(input.userId);
+  async execute(input: { userId: string; messageId: string; newContent: string; tenantId: string }) {
+    const session = await this.sessionRepository.findByUserId(input.userId, input.tenantId);
     if (!session || this.gateway.getStatus(session.id) !== "connected") {
       throw new AppError("WhatsApp not connected", 400, "NOT_CONNECTED");
     }
 
-    const message = await this.messageRepository.findById(input.messageId);
+    const message = await this.messageRepository.findById(input.messageId, input.tenantId);
     if (!message) {
       throw new AppError("Message not found", 404, "MESSAGE_NOT_FOUND");
     }
@@ -30,7 +30,7 @@ export class EditMessage {
       throw new AppError("Message has no WhatsApp ID", 400, "NO_WA_ID");
     }
 
-    const contact = await this.contactRepository.findById(message.contactId);
+    const contact = await this.contactRepository.findById(message.contactId, input.tenantId);
     if (!contact) {
       throw new AppError("Contact not found", 404, "CONTACT_NOT_FOUND");
     }
@@ -47,7 +47,7 @@ export class EditMessage {
       ...message.props,
       content: input.newContent,
     });
-    await this.messageRepository.save(updated);
+    await this.messageRepository.save(updated, input.tenantId);
 
     return updated.toJSON();
   }

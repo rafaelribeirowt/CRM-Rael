@@ -7,6 +7,7 @@ interface CreatePipelineInput {
   name: string;
   description?: string;
   createdBy: string;
+  tenantId: string;
   stages?: { name: string; color?: string; isWon?: boolean; isLost?: boolean }[];
 }
 
@@ -26,7 +27,7 @@ export class CreatePipeline {
   ) {}
 
   async execute(input: CreatePipelineInput) {
-    const existing = await this.pipelineRepository.findAll();
+    const existing = await this.pipelineRepository.findAll(input.tenantId);
     const isDefault = existing.length === 0;
 
     const pipeline = Pipeline.create({
@@ -37,7 +38,7 @@ export class CreatePipeline {
       position: existing.length,
     });
 
-    await this.pipelineRepository.save(pipeline);
+    await this.pipelineRepository.save(pipeline, input.tenantId);
 
     const stageDefs = input.stages?.length ? input.stages : DEFAULT_STAGES;
     const stages = stageDefs.map((s, i) =>
@@ -52,7 +53,7 @@ export class CreatePipeline {
     );
 
     for (const stage of stages) {
-      await this.stageRepository.save(stage);
+      await this.stageRepository.save(stage, input.tenantId);
     }
 
     return {

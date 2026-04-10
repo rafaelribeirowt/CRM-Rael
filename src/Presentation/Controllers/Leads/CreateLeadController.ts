@@ -30,6 +30,7 @@ export class CreateLeadController {
       const result = await this.createLead.execute({
         ...data,
         userId: req.userId,
+        tenantId: req.tenantId!,
       });
       res.status(201).json(result);
     } catch (error) {

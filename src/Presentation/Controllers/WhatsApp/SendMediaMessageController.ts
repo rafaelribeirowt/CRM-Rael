@@ -21,6 +21,7 @@ export class SendMediaMessageController {
         userId: req.userId!,
         contactId: req.body.contactId,
         caption: req.body.caption || undefined,
+        tenantId: req.tenantId!,
         file: {
           buffer: file.buffer,
           mimetype: file.mimetype,

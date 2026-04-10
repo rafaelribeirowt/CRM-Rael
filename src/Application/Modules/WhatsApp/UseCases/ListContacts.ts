@@ -7,13 +7,16 @@ export class ListContacts {
     private readonly messageRepository: IMessageRepository
   ) {}
 
-  async execute() {
-    const contacts = await this.contactRepository.findAll();
+  async execute(tenantId: string, includeHidden = false) {
+    const contacts = includeHidden
+      ? await this.contactRepository.findAll(tenantId)
+      : await this.contactRepository.findAllVisible(tenantId);
 
     const contactsWithLastMessage = await Promise.all(
       contacts.map(async (contact) => {
         const lastMessage = await this.messageRepository.findLastByContactId(
-          contact.id
+          contact.id,
+          tenantId
         );
         return {
           ...contact.toJSON(),

@@ -16,6 +16,7 @@ interface SetStepConditionsInput {
   flowId: string;
   stepId: string;
   conditions: ConditionInput[];
+  tenantId: string;
 }
 
 export class SetStepConditions {
@@ -25,12 +26,12 @@ export class SetStepConditions {
   ) {}
 
   async execute(input: SetStepConditionsInput) {
-    const step = await this.botStepRepository.findById(input.stepId);
+    const step = await this.botStepRepository.findById(input.stepId, input.tenantId);
     if (!step) {
       throw new AppError("Bot step not found", 404, "BOT_STEP_NOT_FOUND");
     }
 
-    await this.botStepConditionRepository.deleteByStepId(input.stepId);
+    await this.botStepConditionRepository.deleteByStepId(input.stepId, input.tenantId);
 
     const conditions = input.conditions.map((c, index) =>
       BotStepCondition.create({
@@ -45,7 +46,7 @@ export class SetStepConditions {
     );
 
     for (const condition of conditions) {
-      await this.botStepConditionRepository.save(condition);
+      await this.botStepConditionRepository.save(condition, input.tenantId);
     }
 
     return conditions.map((c) => c.toJSON());

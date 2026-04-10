@@ -9,6 +9,7 @@ interface SendMessageInput {
   userId: string;
   contactId: string;
   content: string;
+  tenantId: string;
 }
 
 export class SendMessage {
@@ -20,12 +21,12 @@ export class SendMessage {
   ) {}
 
   async execute(input: SendMessageInput) {
-    const session = await this.sessionRepository.findByUserId(input.userId);
+    const session = await this.sessionRepository.findByUserId(input.userId, input.tenantId);
     if (!session || this.gateway.getStatus(session.id) !== "connected") {
       throw new AppError("WhatsApp not connected", 400, "NOT_CONNECTED");
     }
 
-    const contact = await this.contactRepository.findById(input.contactId);
+    const contact = await this.contactRepository.findById(input.contactId, input.tenantId);
     if (!contact) {
       throw new AppError("Contact not found", 404, "CONTACT_NOT_FOUND");
     }
@@ -46,7 +47,7 @@ export class SendMessage {
       sentBy: input.userId,
     });
 
-    await this.messageRepository.save(message);
+    await this.messageRepository.save(message, input.tenantId);
 
     return message.toJSON();
   }

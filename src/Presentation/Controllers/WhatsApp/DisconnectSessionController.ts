@@ -7,7 +7,10 @@ export class DisconnectSessionController {
 
   handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const result = await this.disconnectSession.execute(req.userId!);
+      const result = await this.disconnectSession.execute({
+        sessionId: req.params.sessionId,
+        tenantId: req.tenantId!,
+      });
       res.json(result);
     } catch (error) {
       next(error);

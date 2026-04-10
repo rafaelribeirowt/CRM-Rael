@@ -1,6 +1,7 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
 import { z } from "zod";
 import { SaveCanvas } from "../../../Application/Modules/BotFlow/UseCases/SaveCanvas";
+import { AuthenticatedRequest } from "../../Contracts/HttpRequest";
 
 const schema = z.object({
   nodes: z.array(
@@ -39,12 +40,13 @@ const schema = z.object({
 export class SaveCanvasController {
   constructor(private readonly saveCanvas: SaveCanvas) {}
 
-  handle = async (req: Request, res: Response, next: NextFunction) => {
+  handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const data = schema.parse(req.body);
       const result = await this.saveCanvas.execute({
         flowId: req.params.flowId,
         ...data,
+        tenantId: req.tenantId!,
       });
       res.json(result);
     } catch (error) {

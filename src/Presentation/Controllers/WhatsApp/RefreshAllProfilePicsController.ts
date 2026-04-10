@@ -14,12 +14,13 @@ export class RefreshAllProfilePicsController {
 
   handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const session = await this.sessionRepository.findByUserId(req.userId!);
+      const tenantId = req.tenantId!;
+      const session = await this.sessionRepository.findByUserId(req.userId!, tenantId);
       if (!session || this.gateway.getStatus(session.id) !== "connected") {
         return res.json({ updated: 0, message: "WhatsApp not connected" });
       }
 
-      const contacts = await this.contactRepository.findAll();
+      const contacts = await this.contactRepository.findAll(tenantId);
       let updated = 0;
 
       for (const contact of contacts) {
@@ -31,7 +32,7 @@ export class RefreshAllProfilePicsController {
               profilePicUrl: picUrl,
               updatedAt: new Date(),
             });
-            await this.contactRepository.save(updatedContact);
+            await this.contactRepository.save(updatedContact, tenantId);
             updated++;
           }
         } catch {

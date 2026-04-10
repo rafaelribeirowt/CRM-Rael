@@ -7,12 +7,13 @@ import { PaginationInput } from "../../../../Infrastructure/Database/Helpers/pag
 interface ListLeadsInput {
   filters: LeadFilters;
   pagination: PaginationInput;
+  tenantId: string;
 }
 
 export class ListLeads {
   constructor(private readonly leadRepository: ILeadRepository) {}
 
   async execute(input: ListLeadsInput) {
-    return this.leadRepository.search(input.filters, input.pagination);
+    return this.leadRepository.search(input.filters, input.pagination, input.tenantId);
   }
 }

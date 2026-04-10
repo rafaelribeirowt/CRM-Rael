@@ -4,6 +4,7 @@ import { ILeadRepository } from "../../../Contracts/Repositories/ILeadRepository
 
 interface UpdateLeadInput {
   id: string;
+  tenantId: string;
   name?: string;
   phone?: string;
   email?: string;
@@ -17,7 +18,7 @@ export class UpdateLead {
   constructor(private readonly leadRepository: ILeadRepository) {}
 
   async execute(input: UpdateLeadInput) {
-    const existing = await this.leadRepository.findById(input.id);
+    const existing = await this.leadRepository.findById(input.id, input.tenantId);
     if (!existing) {
       throw new AppError("Lead not found", 404, "LEAD_NOT_FOUND");
     }
@@ -34,7 +35,7 @@ export class UpdateLead {
       updatedAt: new Date(),
     });
 
-    await this.leadRepository.save(updated);
+    await this.leadRepository.save(updated, input.tenantId);
 
     return updated.toJSON();
   }

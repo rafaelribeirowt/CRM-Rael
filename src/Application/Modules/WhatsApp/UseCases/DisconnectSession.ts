@@ -8,10 +8,10 @@ export class DisconnectSession {
     private readonly gateway: IWhatsAppGateway
   ) {}
 
-  async execute(userId: string) {
-    const session = await this.sessionRepository.findByUserId(userId);
+  async execute(input: { sessionId: string; tenantId: string }) {
+    const session = await this.sessionRepository.findById(input.sessionId, input.tenantId);
     if (!session) {
-      throw new AppError("No session found", 404, "NO_SESSION");
+      throw new AppError("Session not found", 404, "SESSION_NOT_FOUND");
     }
 
     await this.gateway.disconnect(session.id);

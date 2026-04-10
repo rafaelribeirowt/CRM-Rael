@@ -37,11 +37,12 @@ function toDomain(row: LeadRow): Lead {
 }
 
 export class DrizzleLeadRepository implements ILeadRepository {
-  async save(lead: Lead): Promise<void> {
+  async save(lead: Lead, tenantId: string): Promise<void> {
     await db
       .insert(leads)
       .values({
         id: lead.id,
+        tenantId,
         name: lead.name,
         phone: lead.phone,
         email: lead.email,
@@ -83,49 +84,50 @@ export class DrizzleLeadRepository implements ILeadRepository {
       });
   }
 
-  async findById(id: string): Promise<Lead | null> {
+  async findById(id: string, tenantId: string): Promise<Lead | null> {
     const rows = await db
       .select()
       .from(leads)
-      .where(eq(leads.id, id))
+      .where(and(eq(leads.id, id), eq(leads.tenantId, tenantId)))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async findByPhone(phone: string): Promise<Lead | null> {
+  async findByPhone(phone: string, tenantId: string): Promise<Lead | null> {
     const rows = await db
       .select()
       .from(leads)
-      .where(eq(leads.phone, phone))
+      .where(and(eq(leads.phone, phone), eq(leads.tenantId, tenantId)))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async findByStageId(stageId: string): Promise<Lead[]> {
+  async findByStageId(stageId: string, tenantId: string): Promise<Lead[]> {
     const rows = await db
       .select()
       .from(leads)
-      .where(eq(leads.stageId, stageId))
+      .where(and(eq(leads.stageId, stageId), eq(leads.tenantId, tenantId)))
       .orderBy(asc(leads.position));
     return rows.map(toDomain);
   }
 
-  async findByPipelineId(pipelineId: string): Promise<Lead[]> {
+  async findByPipelineId(pipelineId: string, tenantId: string): Promise<Lead[]> {
     const rows = await db
       .select()
       .from(leads)
-      .where(eq(leads.pipelineId, pipelineId))
+      .where(and(eq(leads.pipelineId, pipelineId), eq(leads.tenantId, tenantId)))
       .orderBy(asc(leads.position));
     return rows.map(toDomain);
   }
 
   async search(
     filters: LeadFilters,
-    pagination: PaginationInput
+    pagination: PaginationInput,
+    tenantId: string
   ): Promise<PaginationResult<Lead>> {
     const { page, limit, offset } = getPaginationParams(pagination);
 
-    const conditions = [];
+    const conditions = [eq(leads.tenantId, tenantId)];
 
     if (filters.pipelineId) {
       conditions.push(eq(leads.pipelineId, filters.pipelineId));
@@ -150,7 +152,7 @@ export class DrizzleLeadRepository implements ILeadRepository {
       );
     }
 
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [rows, totalResult] = await Promise.all([
       db
@@ -171,14 +173,23 @@ export class DrizzleLeadRepository implements ILeadRepository {
     id: string,
     stageId: string,
     position: number,
+    tenantId: string,
     pipelineId?: string
   ): Promise<void> {
     const set: Record<string, unknown> = { stageId, position, updatedAt: new Date() };
     if (pipelineId) set.pipelineId = pipelineId;
-    await db.update(leads).set(set).where(eq(leads.id, id));
+    await db.update(leads).set(set).where(and(eq(leads.id, id), eq(leads.tenantId, tenantId)));
   }
 
-  async delete(id: string): Promise<void> {
-    await db.delete(leads).where(eq(leads.id, id));
+  async countByTenantId(tenantId: string): Promise<number> {
+    const result = await db
+      .select({ total: count() })
+      .from(leads)
+      .where(eq(leads.tenantId, tenantId));
+    return result[0]?.total ?? 0;
+  }
+
+  async delete(id: string, tenantId: string): Promise<void> {
+    await db.delete(leads).where(and(eq(leads.id, id), eq(leads.tenantId, tenantId)));
   }
 }

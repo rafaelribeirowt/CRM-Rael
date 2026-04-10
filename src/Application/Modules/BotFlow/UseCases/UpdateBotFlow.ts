@@ -10,13 +10,14 @@ interface UpdateBotFlowInput {
   triggerConfig?: string;
   pipelineId?: string;
   stageId?: string;
+  tenantId: string;
 }
 
 export class UpdateBotFlow {
   constructor(private readonly botFlowRepository: IBotFlowRepository) {}
 
   async execute(input: UpdateBotFlowInput) {
-    const flow = await this.botFlowRepository.findById(input.flowId);
+    const flow = await this.botFlowRepository.findById(input.flowId, input.tenantId);
     if (!flow) {
       throw new AppError("Bot flow not found", 404, "BOT_FLOW_NOT_FOUND");
     }
@@ -32,7 +33,7 @@ export class UpdateBotFlow {
       updatedAt: new Date(),
     });
 
-    await this.botFlowRepository.save(updated);
+    await this.botFlowRepository.save(updated, input.tenantId);
 
     return updated.toJSON();
   }

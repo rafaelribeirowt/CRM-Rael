@@ -1,10 +1,11 @@
-import { Request, Response, NextFunction } from "express";
+import { Response, NextFunction } from "express";
 import { ListLeads } from "../../../Application/Modules/Leads/UseCases/ListLeads";
+import { AuthenticatedRequest } from "../../Contracts/HttpRequest";
 
 export class ListLeadsController {
   constructor(private readonly listLeads: ListLeads) {}
 
-  handle = async (req: Request, res: Response, next: NextFunction) => {
+  handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const result = await this.listLeads.execute({
         filters: {
@@ -18,6 +19,7 @@ export class ListLeadsController {
           page: req.query.page ? Number(req.query.page) : undefined,
           limit: req.query.limit ? Number(req.query.limit) : undefined,
         },
+        tenantId: req.tenantId!,
       });
       res.json(result);
     } catch (error) {

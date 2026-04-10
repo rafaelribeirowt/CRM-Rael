@@ -1,0 +1,26 @@
+services:
+  app:
+    build:
+      context: .
+      target: prod
+    ports:
+      - "${PORT:-3030}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3001}
+      WHATSAPP_AUTH_DIR: /app/whatsapp-auth
+      MEDIA_UPLOAD_DIR: /app/uploads
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - whatsapp-auth:/app/whatsapp-auth
+      - uploads:/app/uploads
+    restart: unless-stopped
+
+volumes:
+  whatsapp-auth:
+  uploads:

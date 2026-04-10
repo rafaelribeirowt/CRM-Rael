@@ -7,7 +7,10 @@ export class GetSessionStatusController {
 
   handle = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const result = await this.getSessionStatus.execute(req.userId!);
+      const result = await this.getSessionStatus.execute({
+        sessionId: req.params.sessionId,
+        tenantId: req.tenantId!,
+      });
       res.json(result);
     } catch (error) {
       next(error);

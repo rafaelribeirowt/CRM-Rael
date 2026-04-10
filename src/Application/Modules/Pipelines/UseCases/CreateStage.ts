@@ -9,6 +9,7 @@ interface CreateStageInput {
   color?: string;
   isWon?: boolean;
   isLost?: boolean;
+  tenantId: string;
 }
 
 export class CreateStage {
@@ -18,13 +19,14 @@ export class CreateStage {
   ) {}
 
   async execute(input: CreateStageInput) {
-    const pipeline = await this.pipelineRepository.findById(input.pipelineId);
+    const pipeline = await this.pipelineRepository.findById(input.pipelineId, input.tenantId);
     if (!pipeline) {
       throw new AppError("Pipeline not found", 404, "PIPELINE_NOT_FOUND");
     }
 
     const existingStages = await this.stageRepository.findByPipelineId(
-      input.pipelineId
+      input.pipelineId,
+      input.tenantId
     );
 
     const stage = PipelineStage.create({
@@ -36,7 +38,7 @@ export class CreateStage {
       isLost: input.isLost,
     });
 
-    await this.stageRepository.save(stage);
+    await this.stageRepository.save(stage, input.tenantId);
 
     return stage.toJSON();
   }

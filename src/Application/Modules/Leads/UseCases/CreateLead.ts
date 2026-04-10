@@ -16,6 +16,7 @@ interface CreateLeadInput {
   source?: string;
   value?: string;
   userId?: string;
+  tenantId: string;
 }
 
 export class CreateLead {
@@ -39,7 +40,7 @@ export class CreateLead {
       value: input.value,
     });
 
-    await this.leadRepository.save(lead);
+    await this.leadRepository.save(lead, input.tenantId);
 
     const activity = Activity.create({
       leadId: lead.id,
@@ -47,7 +48,7 @@ export class CreateLead {
       type: "created",
       description: `Lead "${lead.name}" criado`,
     });
-    await this.activityRepository.save(activity);
+    await this.activityRepository.save(activity, input.tenantId);
 
     return lead.toJSON();
   }

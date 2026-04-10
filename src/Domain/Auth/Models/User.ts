@@ -2,6 +2,7 @@ import { v4 as uuid } from "uuid";
 
 export interface UserProps {
   id: string;
+  tenantId: string;
   name: string;
   email: string;
   passwordHash: string;
@@ -16,6 +17,9 @@ export class User {
 
   get id() {
     return this.props.id;
+  }
+  get tenantId() {
+    return this.props.tenantId;
   }
   get name() {
     return this.props.name;
@@ -40,6 +44,7 @@ export class User {
   }
 
   static create(input: {
+    tenantId: string;
     name: string;
     email: string;
     passwordHash: string;
@@ -47,6 +52,7 @@ export class User {
   }): User {
     return new User({
       id: uuid(),
+      tenantId: input.tenantId,
       name: input.name,
       email: input.email,
       passwordHash: input.passwordHash,
@@ -60,6 +66,7 @@ export class User {
   toJSON() {
     return {
       id: this.id,
+      tenantId: this.tenantId,
       name: this.name,
       email: this.email,
       role: this.role,

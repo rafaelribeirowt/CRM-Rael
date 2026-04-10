@@ -5,8 +5,8 @@ import { IBotFlowRepository } from "../../../Contracts/Repositories/IBotFlowRepo
 export class ToggleBotFlow {
   constructor(private readonly botFlowRepository: IBotFlowRepository) {}
 
-  async execute(flowId: string) {
-    const flow = await this.botFlowRepository.findById(flowId);
+  async execute(input: { flowId: string; tenantId: string }) {
+    const flow = await this.botFlowRepository.findById(input.flowId, input.tenantId);
     if (!flow) {
       throw new AppError("Bot flow not found", 404, "BOT_FLOW_NOT_FOUND");
     }
@@ -17,7 +17,7 @@ export class ToggleBotFlow {
       updatedAt: new Date(),
     });
 
-    await this.botFlowRepository.save(updated);
+    await this.botFlowRepository.save(updated, input.tenantId);
 
     return updated.toJSON();
   }

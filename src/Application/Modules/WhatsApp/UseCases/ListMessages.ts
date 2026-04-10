@@ -4,7 +4,7 @@ import { PaginationInput } from "../../../../Infrastructure/Database/Helpers/pag
 export class ListMessages {
   constructor(private readonly messageRepository: IMessageRepository) {}
 
-  async execute(contactId: string, pagination: PaginationInput) {
-    return this.messageRepository.findByContactId(contactId, pagination);
+  async execute(input: { contactId: string; pagination: PaginationInput; tenantId: string }) {
+    return this.messageRepository.findByContactId(input.contactId, input.pagination, input.tenantId);
   }
 }

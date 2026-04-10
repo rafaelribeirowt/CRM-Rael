@@ -1,4 +1,4 @@
-import { eq, desc, count } from "drizzle-orm";
+import { eq, and, desc, count } from "drizzle-orm";
 import { Message } from "../../../Domain/WhatsApp/Models/Message";
 import { IMessageRepository } from "../../../Application/Contracts/Repositories/IMessageRepository";
 import { db } from "../Drizzle/client";
@@ -29,11 +29,12 @@ function toDomain(row: MessageRow): Message {
 }
 
 export class DrizzleMessageRepository implements IMessageRepository {
-  async save(message: Message): Promise<void> {
+  async save(message: Message, tenantId: string): Promise<void> {
     await db
       .insert(messages)
       .values({
         id: message.id,
+        tenantId,
         contactId: message.contactId,
         whatsappMsgId: message.whatsappMsgId,
         direction: message.direction,
@@ -50,14 +51,15 @@ export class DrizzleMessageRepository implements IMessageRepository {
       .onConflictDoNothing();
   }
 
-  async findById(id: string): Promise<Message | null> {
-    const rows = await db.select().from(messages).where(eq(messages.id, id)).limit(1);
+  async findById(id: string, tenantId: string): Promise<Message | null> {
+    const rows = await db.select().from(messages).where(and(eq(messages.id, id), eq(messages.tenantId, tenantId))).limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
   async findByContactId(
     contactId: string,
-    pagination: PaginationInput
+    pagination: PaginationInput,
+    tenantId: string
   ): Promise<PaginationResult<Message>> {
     const { page, limit, offset } = getPaginationParams(pagination);
 
@@ -65,27 +67,27 @@ export class DrizzleMessageRepository implements IMessageRepository {
       db
         .select()
         .from(messages)
-        .where(eq(messages.contactId, contactId))
+        .where(and(eq(messages.contactId, contactId), eq(messages.tenantId, tenantId)))
         .orderBy(desc(messages.timestamp))
         .limit(limit)
         .offset(offset),
-      db.select({ total: count() }).from(messages).where(eq(messages.contactId, contactId)),
+      db.select({ total: count() }).from(messages).where(and(eq(messages.contactId, contactId), eq(messages.tenantId, tenantId))),
     ]);
 
     return buildPaginationResult(rows.map(toDomain), totalResult[0]?.total ?? 0, page, limit);
   }
 
-  async findLastByContactId(contactId: string): Promise<Message | null> {
+  async findLastByContactId(contactId: string, tenantId: string): Promise<Message | null> {
     const rows = await db
       .select()
       .from(messages)
-      .where(eq(messages.contactId, contactId))
+      .where(and(eq(messages.contactId, contactId), eq(messages.tenantId, tenantId)))
       .orderBy(desc(messages.timestamp))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async delete(id: string): Promise<void> {
-    await db.delete(messages).where(eq(messages.id, id));
+  async delete(id: string, tenantId: string): Promise<void> {
+    await db.delete(messages).where(and(eq(messages.id, id), eq(messages.tenantId, tenantId)));
   }
 }

@@ -7,6 +7,7 @@ import { IBotStepRepository } from "../../../Contracts/Repositories/IBotStepRepo
 interface ReorderBotStepsInput {
   flowId: string;
   stepIds: string[];
+  tenantId: string;
 }
 
 export class ReorderBotSteps {
@@ -16,7 +17,7 @@ export class ReorderBotSteps {
   ) {}
 
   async execute(input: ReorderBotStepsInput) {
-    const flow = await this.botFlowRepository.findById(input.flowId);
+    const flow = await this.botFlowRepository.findById(input.flowId, input.tenantId);
     if (!flow) {
       throw new AppError("Bot flow not found", 404, "BOT_FLOW_NOT_FOUND");
     }
@@ -26,17 +27,18 @@ export class ReorderBotSteps {
       position: index,
     }));
 
-    await this.botStepRepository.updatePositions(updates);
+    await this.botStepRepository.updatePositions(updates, input.tenantId);
 
     const updatedFlow = new BotFlow({
       ...flow.props,
       firstStepId: input.stepIds[0] ?? null,
       updatedAt: new Date(),
     });
-    await this.botFlowRepository.save(updatedFlow);
+    await this.botFlowRepository.save(updatedFlow, input.tenantId);
 
     const steps = await this.botStepRepository.findByFlowIdOrdered(
-      input.flowId
+      input.flowId,
+      input.tenantId
     );
 
     for (let i = 0; i < steps.length; i++) {
@@ -46,12 +48,13 @@ export class ReorderBotSteps {
           ...steps[i].props,
           nextStepId,
         });
-        await this.botStepRepository.save(linked);
+        await this.botStepRepository.save(linked, input.tenantId);
       }
     }
 
     const reorderedSteps = await this.botStepRepository.findByFlowIdOrdered(
-      input.flowId
+      input.flowId,
+      input.tenantId
     );
     return reorderedSteps.map((s) => s.toJSON());
   }

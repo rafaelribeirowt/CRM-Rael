@@ -19,6 +19,7 @@ export class ConvertContactToLeadController {
       const result = await this.convertContactToLead.execute({
         ...data,
         userId: req.userId,
+        tenantId: req.tenantId!,
       });
       res.status(201).json(result);
     } catch (error) {

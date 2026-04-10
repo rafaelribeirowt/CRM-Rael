@@ -21,11 +21,12 @@ function toDomain(row: BotFlowRow): BotFlow {
 }
 
 export class DrizzleBotFlowRepository implements IBotFlowRepository {
-  async save(flow: BotFlow): Promise<void> {
+  async save(flow: BotFlow, tenantId: string): Promise<void> {
     await db
       .insert(botFlows)
       .values({
         id: flow.id,
+        tenantId,
         name: flow.name,
         description: flow.description,
         isActive: flow.isActive,
@@ -53,32 +54,33 @@ export class DrizzleBotFlowRepository implements IBotFlowRepository {
       });
   }
 
-  async findById(id: string): Promise<BotFlow | null> {
+  async findById(id: string, tenantId: string): Promise<BotFlow | null> {
     const rows = await db
       .select()
       .from(botFlows)
-      .where(eq(botFlows.id, id))
+      .where(and(eq(botFlows.id, id), eq(botFlows.tenantId, tenantId)))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async findAll(): Promise<BotFlow[]> {
-    const rows = await db.select().from(botFlows);
+  async findAll(tenantId: string): Promise<BotFlow[]> {
+    const rows = await db.select().from(botFlows).where(eq(botFlows.tenantId, tenantId));
     return rows.map(toDomain);
   }
 
-  async findActive(): Promise<BotFlow[]> {
+  async findActive(tenantId: string): Promise<BotFlow[]> {
     const rows = await db
       .select()
       .from(botFlows)
-      .where(eq(botFlows.isActive, true));
+      .where(and(eq(botFlows.isActive, true), eq(botFlows.tenantId, tenantId)));
     return rows.map(toDomain);
   }
 
-  async findActiveByTrigger(triggerType: string, pipelineId?: string): Promise<BotFlow[]> {
+  async findActiveByTrigger(triggerType: string, tenantId: string, pipelineId?: string): Promise<BotFlow[]> {
     const conditions = [
       eq(botFlows.isActive, true),
       eq(botFlows.triggerType, triggerType),
+      eq(botFlows.tenantId, tenantId),
     ];
 
     if (pipelineId) {
@@ -97,7 +99,7 @@ export class DrizzleBotFlowRepository implements IBotFlowRepository {
     return rows.map(toDomain);
   }
 
-  async delete(id: string): Promise<void> {
-    await db.delete(botFlows).where(eq(botFlows.id, id));
+  async delete(id: string, tenantId: string): Promise<void> {
+    await db.delete(botFlows).where(and(eq(botFlows.id, id), eq(botFlows.tenantId, tenantId)));
   }
 }

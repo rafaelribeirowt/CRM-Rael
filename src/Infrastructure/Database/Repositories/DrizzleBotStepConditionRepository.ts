@@ -1,4 +1,4 @@
-import { eq, asc } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { BotStepCondition } from "../../../Domain/BotFlow/Models/BotStepCondition";
 import { IBotStepConditionRepository } from "../../../Application/Contracts/Repositories/IBotStepConditionRepository";
 import { db } from "../Drizzle/client";
@@ -20,11 +20,12 @@ function toDomain(row: BotStepConditionRow): BotStepCondition {
 }
 
 export class DrizzleBotStepConditionRepository implements IBotStepConditionRepository {
-  async save(condition: BotStepCondition): Promise<void> {
+  async save(condition: BotStepCondition, tenantId: string): Promise<void> {
     await db
       .insert(botStepConditions)
       .values({
         id: condition.id,
+        tenantId,
         stepId: condition.stepId,
         label: condition.label,
         operator: condition.operator,
@@ -48,29 +49,29 @@ export class DrizzleBotStepConditionRepository implements IBotStepConditionRepos
       });
   }
 
-  async findById(id: string): Promise<BotStepCondition | null> {
+  async findById(id: string, tenantId: string): Promise<BotStepCondition | null> {
     const rows = await db
       .select()
       .from(botStepConditions)
-      .where(eq(botStepConditions.id, id))
+      .where(and(eq(botStepConditions.id, id), eq(botStepConditions.tenantId, tenantId)))
       .limit(1);
     return rows[0] ? toDomain(rows[0]) : null;
   }
 
-  async findByStepId(stepId: string): Promise<BotStepCondition[]> {
+  async findByStepId(stepId: string, tenantId: string): Promise<BotStepCondition[]> {
     const rows = await db
       .select()
       .from(botStepConditions)
-      .where(eq(botStepConditions.stepId, stepId))
+      .where(and(eq(botStepConditions.stepId, stepId), eq(botStepConditions.tenantId, tenantId)))
       .orderBy(asc(botStepConditions.position));
     return rows.map(toDomain);
   }
 
-  async deleteByStepId(stepId: string): Promise<void> {
-    await db.delete(botStepConditions).where(eq(botStepConditions.stepId, stepId));
+  async deleteByStepId(stepId: string, tenantId: string): Promise<void> {
+    await db.delete(botStepConditions).where(and(eq(botStepConditions.stepId, stepId), eq(botStepConditions.tenantId, tenantId)));
   }
 
-  async delete(id: string): Promise<void> {
-    await db.delete(botStepConditions).where(eq(botStepConditions.id, id));
+  async delete(id: string, tenantId: string): Promise<void> {
+    await db.delete(botStepConditions).where(and(eq(botStepConditions.id, id), eq(botStepConditions.tenantId, tenantId)));
   }
 }

@@ -5,6 +5,7 @@ import { IPipelineStageRepository } from "../../../Contracts/Repositories/IPipel
 interface ReorderStagesInput {
   pipelineId: string;
   stageIds: string[];
+  tenantId: string;
 }
 
 export class ReorderStages {
@@ -14,7 +15,7 @@ export class ReorderStages {
   ) {}
 
   async execute(input: ReorderStagesInput) {
-    const pipeline = await this.pipelineRepository.findById(input.pipelineId);
+    const pipeline = await this.pipelineRepository.findById(input.pipelineId, input.tenantId);
     if (!pipeline) {
       throw new AppError("Pipeline not found", 404, "PIPELINE_NOT_FOUND");
     }
@@ -24,10 +25,11 @@ export class ReorderStages {
       position: index,
     }));
 
-    await this.stageRepository.updatePositions(updates);
+    await this.stageRepository.updatePositions(updates, input.tenantId);
 
     const stages = await this.stageRepository.findByPipelineId(
-      input.pipelineId
+      input.pipelineId,
+      input.tenantId
     );
     return stages.map((s) => s.toJSON());
   }

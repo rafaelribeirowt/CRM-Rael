@@ -5,13 +5,14 @@ import { IContactRepository } from "../../../Contracts/Repositories/IContactRepo
 interface UpdateContactNameInput {
   contactId: string;
   name: string;
+  tenantId: string;
 }
 
 export class UpdateContactName {
   constructor(private readonly contactRepository: IContactRepository) {}
 
   async execute(input: UpdateContactNameInput) {
-    const existing = await this.contactRepository.findById(input.contactId);
+    const existing = await this.contactRepository.findById(input.contactId, input.tenantId);
     if (!existing) {
       throw new AppError("Contact not found", 404, "CONTACT_NOT_FOUND");
     }
@@ -22,7 +23,7 @@ export class UpdateContactName {
       updatedAt: new Date(),
     });
 
-    await this.contactRepository.save(updated);
+    await this.contactRepository.save(updated, input.tenantId);
 
     return updated.toJSON();
   }

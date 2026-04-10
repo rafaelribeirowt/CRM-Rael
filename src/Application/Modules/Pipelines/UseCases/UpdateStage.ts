@@ -4,6 +4,7 @@ import { IPipelineStageRepository } from "../../../Contracts/Repositories/IPipel
 
 interface UpdateStageInput {
   stageId: string;
+  tenantId: string;
   name?: string;
   color?: string;
   isWon?: boolean;
@@ -16,7 +17,7 @@ export class UpdateStage {
   ) {}
 
   async execute(input: UpdateStageInput) {
-    const stage = await this.stageRepository.findById(input.stageId);
+    const stage = await this.stageRepository.findById(input.stageId, input.tenantId);
     if (!stage) {
       throw new AppError("Stage not found", 404, "STAGE_NOT_FOUND");
     }
@@ -29,7 +30,7 @@ export class UpdateStage {
       isLost: input.isLost ?? stage.isLost,
     });
 
-    await this.stageRepository.save(updated);
+    await this.stageRepository.save(updated, input.tenantId);
     return updated.toJSON();
   }
 }
